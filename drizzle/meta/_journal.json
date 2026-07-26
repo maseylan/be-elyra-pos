@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1783930652562,
+      "tag": "0000_nappy_chamber",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783932538509,
+      "tag": "0001_glorious_pandemic",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783939412060,
+      "tag": "0002_dear_corsair",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785500000000,
+      "tag": "0003_add_refresh_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786300000000,
+      "tag": "0004_add_expired",
+      "breakpoints": true
+    }
+  ]
+}

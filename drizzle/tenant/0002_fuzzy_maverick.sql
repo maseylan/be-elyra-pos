@@ -1,0 +1,1 @@
+ALTER TABLE "products" ADD COLUMN "is_global" boolean DEFAULT true NOT NULL;

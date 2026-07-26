@@ -1,0 +1,79 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    container_name: pos_postgres
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: rootpassword
+      POSTGRES_DB: pos_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U root -d pos_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: pos_pgbouncer
+    environment:
+      DB_USER: root
+      DB_PASSWORD: rootpassword
+      DB_HOST: postgres
+      DB_NAME: pos_db
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 20
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits
+    ports:
+      - "6433:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    container_name: pos_redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redisdata:/data
+
+  backend:
+    build: .
+    container_name: pos_backend
+    ports:
+      - "3000:3000"
+    command: sh -c "npm install && npm run dev"
+    volumes:
+      - ./:/app
+      - /app/node_modules
+    environment:
+      - PORT=3000
+      - NODE_ENV=development
+      - DATABASE_URL=postgres://root:rootpassword@postgres:5432/pos_db
+      - PGBOUNCER_URL=postgres://root:rootpassword@pgbouncer:5432/pos_db
+      - REDIS_URL=redis://redis:6379
+      - JWT_ACCESS_SECRET=your_super_secret_access_key
+      - JWT_REFRESH_SECRET=your_super_secret_refresh_key
+      - CORS_ALLOWED_DOMAINS=http://localhost:5173,https://elyrapos.my.id
+      - MIDTRANS_SERVER_KEY=your_midtrans_server_key
+      - MIDTRANS_CLIENT_KEY=your_midtrans_client_key
+      - MIDTRANS_IS_PRODUCTION=false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_started
+      redis:
+        condition: service_started
+    restart: always
+
+volumes:
+  pgdata:
+  redisdata:
