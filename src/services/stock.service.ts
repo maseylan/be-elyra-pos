@@ -1,6 +1,6 @@
 import { withTenantSchema } from '../db/with-tenant-schema';
 import * as schema from '../db/tenant_schema';
-import { eq, and, sql, desc, inArray, lte, gt, gte } from 'drizzle-orm';
+import { eq, and, sql, desc, inArray, lte, gt, gte, ne } from 'drizzle-orm';
 import crypto from 'crypto';
 
 export class StockError extends Error {
@@ -10,9 +10,11 @@ export class StockError extends Error {
 export async function listStockMovements(filters: {
   outletId?: string;
   productId?: string;
+  variantId?: string;
   type?: string;
   startDate?: string;
   endDate?: string;
+  excludeSales?: boolean;
   page?: number;
   limit?: number;
 }) {
@@ -25,20 +27,28 @@ export async function listStockMovements(filters: {
 
     if (filters.outletId) conditions.push(eq(schema.stockMovements.outletId, filters.outletId));
     if (filters.productId) conditions.push(eq(schema.stockMovements.productId, filters.productId));
+    if (filters.variantId) conditions.push(eq(schema.stockMovements.variantId, filters.variantId));
     if (filters.type) conditions.push(eq(schema.stockMovements.type, filters.type as any));
     if (filters.startDate) conditions.push(gte(schema.stockMovements.createdAt, new Date(filters.startDate)));
     if (filters.endDate) conditions.push(lte(schema.stockMovements.createdAt, new Date(filters.endDate)));
+    if (filters.excludeSales) conditions.push(ne(schema.stockMovements.type, 'sale'));
 
     const rows = await tx
       .select({
         movement: schema.stockMovements,
         productName: schema.products.name,
         productSku: schema.products.sku,
+        variantName: schema.productVariants.name,
+        variantSku: schema.productVariants.sku,
         outletName: schema.outlets.name,
+        userName: schema.users.name,
+        userRole: schema.users.role,
       })
       .from(schema.stockMovements)
       .leftJoin(schema.products, eq(schema.products.id, schema.stockMovements.productId))
+      .leftJoin(schema.productVariants, eq(schema.productVariants.id, schema.stockMovements.variantId))
       .leftJoin(schema.outlets, eq(schema.outlets.id, schema.stockMovements.outletId))
+      .leftJoin(schema.users, eq(schema.users.id, schema.stockMovements.createdBy))
       .where(and(...conditions))
       .orderBy(desc(schema.stockMovements.createdAt))
       .limit(limit)
@@ -49,21 +59,31 @@ export async function listStockMovements(filters: {
       .from(schema.stockMovements)
       .where(and(...conditions));
 
-    const data = rows.map((r: any) => ({
-      id: r.movement.id,
-      outletId: r.movement.outletId,
-      productId: r.movement.productId,
-      outletName: r.outletName,
-      productName: r.productName,
-      productSku: r.productSku,
-      type: r.movement.type,
-      quantityChange: r.movement.quantityChange,
-      stockAfter: r.movement.stockAfter,
-      referenceId: r.movement.referenceId,
-      note: r.movement.note,
-      createdBy: r.movement.createdBy,
-      createdAt: r.movement.createdAt,
-    }));
+    const data = rows.map((r: any) => {
+      const displayName = r.variantName ? `${r.productName}:${r.variantName}` : (r.productName || r.movement.productId);
+      const effectiveSku = r.variantSku || r.productSku || null;
+
+      return {
+        id: r.movement.id,
+        outletId: r.movement.outletId,
+        productId: r.movement.productId,
+        variantId: r.movement.variantId || null,
+        outletName: r.outletName,
+        productName: displayName,
+        productSku: effectiveSku,
+        variantName: r.variantName || null,
+        variantSku: r.variantSku || null,
+        type: r.movement.type,
+        quantityChange: r.movement.quantityChange,
+        stockAfter: r.movement.stockAfter,
+        referenceId: r.movement.referenceId,
+        note: r.movement.note,
+        createdBy: r.movement.createdBy,
+        userName: r.userName || r.movement.createdBy || 'Admin',
+        userRole: r.userRole || 'Store Manager',
+        createdAt: r.movement.createdAt,
+      };
+    });
 
     return { data, total: count, page, limit };
   });
@@ -72,7 +92,8 @@ export async function listStockMovements(filters: {
 export async function adjustStock(params: {
   outletId: string;
   productId: string;
-  type: 'restock' | 'adjustment' | 'waste' | 'return';
+  variantId?: string;
+  type: 'restock' | 'stock_out' | 'adjustment' | 'waste' | 'return';
   quantity: number;
   note?: string;
   createdBy?: string;
@@ -86,17 +107,22 @@ export async function adjustStock(params: {
     if (!product) throw new StockError('Product not found');
     if (product.type !== 'STOCK') throw new StockError('Product is not a stock-tracked item');
 
+    const outletProductConditions = [
+      eq(schema.outletProducts.outletId, params.outletId),
+      eq(schema.outletProducts.productId, params.productId),
+    ];
+    if (params.variantId) {
+      outletProductConditions.push(eq(schema.outletProducts.variantId, params.variantId));
+    } else {
+      outletProductConditions.push(sql`${schema.outletProducts.variantId} IS NULL`);
+    }
+
     const [outletProduct] = await tx
       .select()
       .from(schema.outletProducts)
-      .where(
-        and(
-          eq(schema.outletProducts.outletId, params.outletId),
-          eq(schema.outletProducts.productId, params.productId)
-        )
-      );
+      .where(and(...outletProductConditions));
 
-    if (!outletProduct) throw new StockError('Product is not available at this outlet');
+    if (!outletProduct) throw new StockError('Product/variant is not available at this outlet');
 
     let quantityChange: number;
     switch (params.type) {
@@ -105,6 +131,7 @@ export async function adjustStock(params: {
         quantityChange = Math.abs(params.quantity);
         break;
       case 'waste':
+      case 'stock_out':
         quantityChange = -Math.abs(params.quantity);
         break;
       case 'adjustment':
@@ -122,18 +149,14 @@ export async function adjustStock(params: {
     await tx
       .update(schema.outletProducts)
       .set({ stock: Math.max(0, newStock), updatedAt: new Date() })
-      .where(
-        and(
-          eq(schema.outletProducts.outletId, params.outletId),
-          eq(schema.outletProducts.productId, params.productId)
-        )
-      );
+      .where(eq(schema.outletProducts.id, outletProduct.id));
 
     await tx.insert(schema.stockMovements).values({
       id: crypto.randomUUID(),
       outletId: params.outletId,
       productId: params.productId,
-      type: params.type,
+      variantId: params.variantId || null,
+      type: params.type === 'stock_out' ? 'waste' : params.type,
       quantityChange,
       stockAfter: Math.max(0, newStock),
       note: params.note || null,
@@ -163,8 +186,11 @@ export async function getLowStockProducts(outletId?: string) {
     const rows = await tx
       .select({
         id: schema.products.id,
-        name: schema.products.name,
-        sku: schema.products.sku,
+        variantId: schema.outletProducts.variantId,
+        productName: schema.products.name,
+        productSku: schema.products.sku,
+        variantName: schema.productVariants.name,
+        variantSku: schema.productVariants.sku,
         stock: schema.outletProducts.stock,
         lowStockThreshold: sql<number>`COALESCE(${schema.outletProducts.lowStockThreshold}, ${schema.products.lowStockThreshold}, 0)`,
         outletName: schema.outlets.name,
@@ -178,14 +204,17 @@ export async function getLowStockProducts(outletId?: string) {
           outletId ? eq(schema.outletProducts.outletId, outletId) : undefined,
         )
       )
+      .leftJoin(schema.productVariants, eq(schema.productVariants.id, schema.outletProducts.variantId))
       .leftJoin(schema.outlets, eq(schema.outlets.id, schema.outletProducts.outletId))
       .where(and(...conditions))
       .orderBy(sql`${schema.outletProducts.stock} asc`);
 
     return rows.map((r: any) => ({
-      id: r.id,
-      name: r.name,
-      sku: r.sku,
+      id: r.variantId ? `${r.id}:${r.variantId}` : r.id,
+      productId: r.id,
+      variantId: r.variantId || null,
+      name: r.variantName ? `${r.productName}:${r.variantName}` : r.productName,
+      sku: r.variantSku || r.productSku || null,
       stock: r.stock,
       lowStockThreshold: r.lowStockThreshold,
       outletName: r.outletName || null,

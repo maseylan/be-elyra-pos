@@ -156,6 +156,7 @@ export const products = pgTable('products', {
   categoryId: uuid('category_id').references(() => categories.id),
 
   isGlobal: boolean('is_global').notNull().default(true),
+  hasVariants: boolean('has_variants').notNull().default(false),
   isActive: boolean('is_active').notNull().default(true),
   imageUrl: text('image_url'),
 
@@ -168,25 +169,39 @@ export const products = pgTable('products', {
   barcodeUnique: uniqueIndex('products_barcode_unique').on(table.barcode),
 }));
 
+// 1. Base Product Variants
+export const productVariants = pgTable('product_variants', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 100 }).notNull(),
+  price: decimal('price', { precision: 12, scale: 2 }).notNull().default('0'),
+  sku: varchar('sku', { length: 64 }),
+  isDefault: boolean('is_default').notNull().default(false),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
 export const outletProducts = pgTable('outlet_products', {
   id: uuid('id').primaryKey().defaultRandom(),
   outletId: uuid('outlet_id').notNull().references(() => outlets.id, { onDelete: 'cascade' }),
   productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  variantId: uuid('variant_id').references(() => productVariants.id, { onDelete: 'cascade' }),
 
   stock: integer('stock').notNull().default(0),
-  sellPriceOverride: decimal('sell_price_override', { precision: 12, scale: 2 }), // null = pakai products.sellPrice
+  sellPriceOverride: decimal('sell_price_override', { precision: 12, scale: 2 }), // null = pakai products.sellPrice / productVariants.price
   lowStockThreshold: integer('low_stock_threshold'), // null = fallback ke products.lowStockThreshold
   isAvailable: boolean('is_available').notNull().default(true),
 
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, (table) => ({
-  uniqueOutletProduct: uniqueIndex('outlet_products_unique').on(table.outletId, table.productId),
+  uniqueOutletProduct: uniqueIndex('outlet_products_unique').on(table.outletId, table.productId, table.variantId),
 }));
 
 export const stockMovements = pgTable('stock_movements', {
   id: uuid('id').primaryKey().defaultRandom(),
   outletId: uuid('outlet_id').notNull().references(() => outlets.id),
   productId: uuid('product_id').notNull(),
+  variantId: uuid('variant_id').references(() => productVariants.id, { onDelete: 'cascade' }),
   type: stockMovementTypeEnum('type').notNull(),
   quantityChange: integer('quantity_change').notNull(),
   stockAfter: integer('stock_after').notNull(),
@@ -196,13 +211,97 @@ export const stockMovements = pgTable('stock_movements', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
-export const productVariants = pgTable('product_variants', {
+// 3. Modifier Groups
+export const modifierGroups = pgTable('modifier_groups', {
   id: uuid('id').primaryKey().defaultRandom(),
-  productId: uuid('product_id').notNull(),
+  productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 100 }).notNull(),
+  selectionType: varchar('selection_type', { length: 20 }).notNull().default('single'),
+  minSelect: integer('min_select').notNull().default(0),
+  maxSelect: integer('max_select'),
+  isRequired: boolean('is_required').notNull().default(false),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+// 4. Modifiers (No stock column)
+export const modifiers = pgTable('modifiers', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  groupId: uuid('group_id').notNull().references(() => modifierGroups.id, { onDelete: 'cascade' }),
   name: varchar('name', { length: 100 }).notNull(),
   priceAdjustment: decimal('price_adjustment', { precision: 12, scale: 2 }).notNull().default('0'),
-  stock: integer('stock'),
+  isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+// 5. Outlet Modifier Overrides (No stock column)
+export const outletModifiers = pgTable('outlet_modifiers', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  outletId: uuid('outlet_id').notNull().references(() => outlets.id, { onDelete: 'cascade' }),
+  modifierId: uuid('modifier_id').notNull().references(() => modifiers.id, { onDelete: 'cascade' }),
+  priceAdjustment: decimal('price_adjustment', { precision: 12, scale: 2 }),
+  isAvailable: boolean('is_available').notNull().default(true),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => ({
+  uniqueOutletModifier: uniqueIndex('outlet_modifiers_unique').on(table.outletId, table.modifierId),
+}));
+
+// 6. Global Add-ons
+export const addOns = pgTable('add_ons', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: varchar('name', { length: 100 }).notNull(),
+  price: decimal('price', { precision: 12, scale: 2 }).notNull().default('0'),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (table) => ({
+  uniqueAddOnName: uniqueIndex('add_ons_name_unique').on(table.name),
+}));
+
+// 7. Product ↔ Add-on Junction Table
+export const productAddOns = pgTable('product_add_ons', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  addOnId: uuid('add_on_id').notNull().references(() => addOns.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (table) => ({
+  uniqueProductAddOn: uniqueIndex('product_add_ons_unique').on(table.productId, table.addOnId),
+}));
+
+// 8. Outlet Add-on Overrides
+export const outletAddOns = pgTable('outlet_add_ons', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  outletId: uuid('outlet_id').notNull().references(() => outlets.id, { onDelete: 'cascade' }),
+  addOnId: uuid('add_on_id').notNull().references(() => addOns.id, { onDelete: 'cascade' }),
+  price: decimal('price', { precision: 12, scale: 2 }),
+  stock: integer('stock'),
+  isAvailable: boolean('is_available').notNull().default(true),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => ({
+  uniqueOutletAddOn: uniqueIndex('outlet_add_ons_unique').on(table.outletId, table.addOnId),
+}));
+
+// Cashier Register Sessions
+export const cashierSessions = pgTable('cashier_sessions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  outletId: uuid('outlet_id').notNull().references(() => outlets.id, { onDelete: 'restrict' }),
+  cashierId: uuid('cashier_id').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  cashierName: varchar('cashier_name', { length: 100 }).notNull(),
+  status: varchar('status', { length: 20 }).notNull().default('OPEN'),
+  openedAt: timestamp('opened_at').notNull().defaultNow(),
+  closedAt: timestamp('closed_at'),
+  startingCash: decimal('starting_cash', { precision: 12, scale: 2 }).notNull().default('0'),
+  endingCash: decimal('ending_cash', { precision: 12, scale: 2 }),
+  expectedCash: decimal('expected_cash', { precision: 12, scale: 2 }),
+  cashDifference: decimal('cash_difference', { precision: 12, scale: 2 }),
+  paymentBreakdown: jsonb('payment_breakdown').default({}),
+  totalRefunds: decimal('total_refunds', { precision: 12, scale: 2 }).default('0'),
+  totalOrdersCount: integer('total_orders_count').default(0),
+  closedBy: uuid('closed_by').references(() => users.id, { onDelete: 'set null' }),
+  forceClosedReason: text('force_closed_reason'),
+  notes: text('notes'),
+  closingNotes: text('closing_notes'),
+  settingsSnapshot: jsonb('settings_snapshot').$type<Record<string, any>>(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
 // Orders & Items
@@ -210,6 +309,7 @@ export const orders = pgTable('orders', {
   id: uuid('id').primaryKey().defaultRandom(),
   idempotencyKey: text('idempotency_key').unique().notNull(), // CRITICAL for offline sync
   outletId: uuid('outlet_id').notNull().references(() => outlets.id),
+  sessionId: uuid('session_id').references(() => cashierSessions.id, { onDelete: 'restrict' }),
   subtotal: numeric('subtotal').notNull(),
   taxAmount: numeric('tax_amount').notNull().default('0'),
   discountAmount: numeric('discount_amount').notNull().default('0'),

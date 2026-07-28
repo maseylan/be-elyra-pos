@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import app from '../app';
-import { getCurrentTenant } from '../contexts/tenant-context';
+import { getCurrentTenant, tenantContext } from '../contexts/tenant-context';
 import { publicDb } from '../db/poolManager';
 import { tenants } from '../db/schema';
 import redisClient from '../config/redis';
+
+vi.unmock('../contexts/tenant-context');
 
 // Mock dependencies
 vi.mock('../config/redis', () => ({
@@ -19,7 +21,6 @@ vi.mock('../db/poolManager', () => ({
     select: vi.fn(() => ({
       from: vi.fn(() => ({
         where: vi.fn((cond) => {
-          // Mock tenant resolution
           return [{
             id: 'tenant_mock',
             applicationStatus: 'provisioned'
@@ -28,24 +29,38 @@ vi.mock('../db/poolManager', () => ({
       }))
     })),
     transaction: vi.fn(async (cb) => {
-      const { schemaName } = getCurrentTenant();
       return cb({
         execute: vi.fn()
       });
     })
   },
+  tenantPool: {
+    query: vi.fn(() => Promise.resolve({ rows: [] })),
+  },
   tenantDbPool: {
     transaction: vi.fn(async (cb) => {
-      // Get context to simulate query execution using the injected context
-      const { schemaName } = getCurrentTenant();
+      let schemaName = '';
+      try {
+        schemaName = getCurrentTenant().schemaName;
+      } catch {}
+
       const mockProducts = schemaName === 'tenant_a' 
-        ? [{ name: 'Produk A Only' }] 
-        : [{ name: 'Produk B Only' }];
+        ? [{ products: { id: '1', name: 'Produk A Only', costPrice: '10', sellPrice: '15' }, categories: null }] 
+        : [{ products: { id: '2', name: 'Produk B Only', costPrice: '10', sellPrice: '15' }, categories: null }];
         
+      const queryBuilder: any = {
+        leftJoin: vi.fn(() => queryBuilder),
+        innerJoin: vi.fn(() => queryBuilder),
+        where: vi.fn(() => queryBuilder),
+        limit: vi.fn(() => queryBuilder),
+        offset: vi.fn(() => Promise.resolve(mockProducts)),
+      };
+      queryBuilder.then = (resolve: any) => resolve([{ count: 1 }]);
+
       return cb({
         execute: vi.fn(),
         select: vi.fn(() => ({
-          from: vi.fn(() => mockProducts)
+          from: vi.fn(() => queryBuilder)
         }))
       });
     })
@@ -56,8 +71,15 @@ vi.mock('../db/poolManager', () => ({
 vi.mock('../middlewares/auth.middleware', () => ({
   requireAuth: (req: any, res: any, next: any) => next(),
   requireOwner: (req: any, res: any, next: any) => next(),
+  requireRole: (roles: any) => (req: any, res: any, next: any) => next(),
   requireSuperadmin: (req: any, res: any, next: any) => next(),
+  requireLoyaltyAccess: (req: any, res: any, next: any) => next(),
   authorizeTenantAccess: (req: any, res: any, next: any) => next(),
+}));
+
+// Mock require-session-type middleware
+vi.mock('../middlewares/require-session-type.middleware', () => ({
+  requireSessionType: () => (req: any, res: any, next: any) => next(),
 }));
 
 describe('Tenant Resolution Middleware', () => {
@@ -66,7 +88,7 @@ describe('Tenant Resolution Middleware', () => {
   });
 
   it('allows access to public route without tenant context', async () => {
-    const res = await request(app).get('/health');
+    const res = await request(app).get('/api/health');
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('ok');
   });
@@ -101,15 +123,17 @@ describe('Tenant Resolution Middleware', () => {
     ]);
 
     expect(resA.status).toBe(200);
-    expect(resA.body).toContainEqual(expect.objectContaining({ name: 'Produk A Only' }));
-    expect(resA.body).not.toContainEqual(expect.objectContaining({ name: 'Produk B Only' }));
+    expect(resA.body.data).toContainEqual(expect.objectContaining({ name: 'Produk A Only' }));
+    expect(resA.body.data).not.toContainEqual(expect.objectContaining({ name: 'Produk B Only' }));
 
     expect(resB.status).toBe(200);
-    expect(resB.body).toContainEqual(expect.objectContaining({ name: 'Produk B Only' }));
-    expect(resB.body).not.toContainEqual(expect.objectContaining({ name: 'Produk A Only' }));
+    expect(resB.body.data).toContainEqual(expect.objectContaining({ name: 'Produk B Only' }));
+    expect(resB.body.data).not.toContainEqual(expect.objectContaining({ name: 'Produk A Only' }));
   });
 
   it('throws an error if getCurrentTenant is called outside context', () => {
-    expect(() => getCurrentTenant()).toThrow(/Tenant context is missing/);
+    tenantContext.run(undefined as any, () => {
+      expect(() => getCurrentTenant()).toThrow(/Tenant context is missing/);
+    });
   });
 });

@@ -5,18 +5,23 @@ import * as stockService from '../services/stock.service';
 const movementsQuerySchema = z.object({
   outletId: z.string().length(36).optional(),
   productId: z.string().length(36).optional(),
+  variantId: z.string().length(36).optional(),
   type: z.enum(['sale', 'restock', 'adjustment', 'waste', 'return', 'initial']).optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
+  excludeSales: z.preprocess(val => val === 'true' || val === true, z.boolean()).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(500).default(50),
 });
 
 const adjustStockSchema = z.object({
   productId: z.string().length(36),
-  type: z.enum(['restock', 'adjustment', 'waste', 'return']),
-  quantity: z.number().int().min(1),
+  variantId: z.string().length(36).optional().nullable(),
+  type: z.enum(['restock', 'stock_out', 'adjustment', 'waste', 'return']),
+  quantity: z.number().int(),
   note: z.string().max(255).optional(),
+  userId: z.string().optional(),
+  createdBy: z.string().optional(),
 });
 
 export const getStockMovements = async (req: Request, res: Response, next: NextFunction) => {
@@ -43,13 +48,17 @@ export const adjustStock = async (req: Request, res: Response, next: NextFunctio
     if (!outletId) {
       return res.status(400).json({ error: 'Outlet context required for stock adjustment' });
     }
+    const currentUser = (req as any).user;
+    const createdBy = parsed.data.userId || parsed.data.createdBy || currentUser?.id || currentUser?.userId;
+
     const result = await stockService.adjustStock({
       outletId,
       productId: parsed.data.productId,
+      variantId: parsed.data.variantId || undefined,
       type: parsed.data.type,
       quantity: parsed.data.quantity,
       note: parsed.data.note,
-      createdBy: (req as any).user?.id || (req as any).user?.userId,
+      createdBy,
     });
     res.json(result);
   } catch (error) {

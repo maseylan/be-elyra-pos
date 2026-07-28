@@ -22,6 +22,12 @@ const createProductSchema = z.object({
   imageUrl: z.string().optional().nullable(),
   isGlobal: z.boolean().default(true),
   outletIds: z.array(z.string().length(36)).optional(),
+  variants: z.array(z.object({
+    name: z.string().min(1).max(100),
+    price: z.number().nonnegative(),
+    sku: z.string().max(64).optional().nullable(),
+    isDefault: z.boolean().optional(),
+  })).optional(),
 });
 
 const paginationSchema = z.object({
@@ -29,6 +35,7 @@ const paginationSchema = z.object({
   limit: z.coerce.number().int().min(1).max(1000).default(20),
   categoryId: z.string().length(36).optional(),
   includeImages: z.string().default('true').transform(v => v === 'true'),
+  status: z.string().optional().default('ACTIVE'),
 });
 
 const idParamSchema = z.object({ id: z.string().length(36) });
@@ -58,7 +65,8 @@ export const getProductById = async (req: Request, res: Response, next: NextFunc
     return res.status(400).json({ error: 'Invalid product id' });
   }
   try {
-    const product = await productService.getProductById(parsedParams.data.id);
+    const outletId = (req.query.outletId as string) || (req.params as any).outletId || (req as any).outletId;
+    const product = await productService.getProductById(parsedParams.data.id, outletId);
     res.json(product);
   } catch (error) {
     if (error instanceof ProductNotFoundError) {
@@ -86,8 +94,15 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
       createdBy: (req as any).user?.id || (req as any).user?.userId,
     } as any);
     res.status(201).json(product);
-  } catch (error) {
-    next(error);
+  } catch (error: any) {
+    console.error('Error creating product:', error);
+    if (error.code === '23505') {
+      return res.status(400).json({ error: 'SKU atau barcode produk sudah digunakan', detail: error.detail });
+    }
+    if (error.code === '23503') {
+      return res.status(400).json({ error: 'Kategori atau referensi produk tidak ditemukan', detail: error.detail });
+    }
+    return res.status(400).json({ error: error.message || 'Gagal menambahkan produk' });
   }
 };
 

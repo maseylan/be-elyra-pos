@@ -110,3 +110,64 @@ export const setupDatabase = async (tenantId: string) => {
 export const getAllTenants = async () => {
   return await publicDb.select().from(tenants);
 };
+
+export const getTenantById = async (tenantId: string) => {
+  const records = await publicDb.select().from(tenants).where(eq(tenants.id, tenantId));
+  if (records.length === 0) {
+    throw new Error('TENANT_NOT_FOUND');
+  }
+  const t = records[0];
+  return {
+    ...t,
+    passwordHash: undefined, // Omit sensitive hash
+  };
+};
+
+export const toggleTenantStatus = async (tenantId: string, isActive: boolean) => {
+  const records = await publicDb.select().from(tenants).where(eq(tenants.id, tenantId));
+  if (records.length === 0) {
+    throw new Error('TENANT_NOT_FOUND');
+  }
+
+  await publicDb.update(tenants)
+    .set({ isActive, updatedAt: new Date() })
+    .where(eq(tenants.id, tenantId));
+
+  try {
+    await redisClient.del(`tenant:resolve:${records[0].subdomain}`);
+  } catch (e) {
+    console.error('Failed to invalidate Redis cache', e);
+  }
+
+  return { id: tenantId, isActive };
+};
+
+export const updateTenantPlan = async (tenantId: string, plan: string) => {
+  const records = await publicDb.select().from(tenants).where(eq(tenants.id, tenantId));
+  if (records.length === 0) {
+    throw new Error('TENANT_NOT_FOUND');
+  }
+
+  const subscriptionStart = new Date();
+  const subscriptionEnd = new Date();
+  subscriptionEnd.setMonth(subscriptionEnd.getMonth() + 1);
+
+  await publicDb.update(tenants)
+    .set({
+      subscriptionType: plan,
+      subscriptionStart,
+      subscriptionEnd,
+      applicationStatus: 'provisioned',
+      updatedAt: new Date(),
+    })
+    .where(eq(tenants.id, tenantId));
+
+  try {
+    await redisClient.del(`tenant:resolve:${records[0].subdomain}`);
+  } catch (e) {
+    console.error('Failed to invalidate Redis cache', e);
+  }
+
+  return { id: tenantId, plan, subscriptionEnd };
+};
+

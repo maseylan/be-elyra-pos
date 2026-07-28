@@ -1,6 +1,6 @@
 import { withTenantSchema } from '../db/with-tenant-schema';
 import * as schema from '../db/tenant_schema';
-import { eq, and, sql, or, isNull } from 'drizzle-orm';
+import { eq, and, sql, or, isNull, inArray } from 'drizzle-orm';
 import crypto from 'crypto';
 
 export function resolveEffectivePrice(
@@ -15,10 +15,11 @@ export function resolveEffectivePrice(
   return override;
 }
 
-export async function listProductsForOutlet(outletId: string, params?: { page?: number; limit?: number; categoryId?: string; includeImages?: boolean }) {
+export async function listProductsForOutlet(outletId: string, params?: { page?: number; limit?: number; categoryId?: string; includeImages?: boolean; status?: string }) {
   const page = params?.page || 1;
   const limit = params?.limit || 20;
   const offset = (page - 1) * limit;
+  const st = (params?.status || 'ACTIVE').toUpperCase();
 
   return withTenantSchema(async (tx) => {
     const outletFilter = or(
@@ -27,6 +28,12 @@ export async function listProductsForOutlet(outletId: string, params?: { page?: 
     );
 
     const conditions: any[] = [outletFilter];
+
+    if (st === 'ARCHIVED') {
+      conditions.push(eq(schema.products.isActive, false));
+    } else if (st === 'ACTIVE') {
+      conditions.push(eq(schema.products.isActive, true));
+    }
 
     if (params?.categoryId) {
       conditions.push(eq(schema.products.categoryId, params.categoryId));
@@ -37,7 +44,11 @@ export async function listProductsForOutlet(outletId: string, params?: { page?: 
       .from(schema.products)
       .leftJoin(
         schema.outletProducts,
-        and(eq(schema.outletProducts.productId, schema.products.id), eq(schema.outletProducts.outletId, outletId))
+        and(
+          eq(schema.outletProducts.productId, schema.products.id),
+          eq(schema.outletProducts.outletId, outletId),
+          isNull(schema.outletProducts.variantId)
+        )
       )
       .leftJoin(
         schema.categories,
@@ -52,13 +63,48 @@ export async function listProductsForOutlet(outletId: string, params?: { page?: 
       .from(schema.products)
       .leftJoin(
         schema.outletProducts,
-        and(eq(schema.outletProducts.productId, schema.products.id), eq(schema.outletProducts.outletId, outletId))
+        and(
+          eq(schema.outletProducts.productId, schema.products.id),
+          eq(schema.outletProducts.outletId, outletId),
+          isNull(schema.outletProducts.variantId)
+        )
       )
       .where(and(...conditions));
     const [{ count }] = await countQuery;
 
     const includeImages = params?.includeImages !== false;
+
+    // Resolve total variant stock for products with variants
+    const variantProductIds = rows
+      .filter(({ products: p }: any) => p.hasVariants)
+      .map(({ products: p }: any) => p.id);
+
+    let variantStockMap: Record<string, number> = {};
+    if (variantProductIds.length > 0) {
+      const variantStocks = await tx
+        .select({
+          productId: schema.outletProducts.productId,
+          totalStock: sql<number>`COALESCE(SUM(${schema.outletProducts.stock}), 0)`,
+        })
+        .from(schema.outletProducts)
+        .where(
+          and(
+            eq(schema.outletProducts.outletId, outletId),
+            inArray(schema.outletProducts.productId, variantProductIds)
+          )
+        )
+        .groupBy(schema.outletProducts.productId);
+
+      variantStocks.forEach((vs: any) => {
+        variantStockMap[vs.productId] = Number(vs.totalStock || 0);
+      });
+    }
+
     const data = rows.map(({ products: product, outlet_products: op, categories: cat }: any) => {
+      const effectiveStock = product.hasVariants
+        ? (variantStockMap[product.id] ?? 0)
+        : (op?.stock ?? product.stock ?? 0);
+
       const entry: any = {
         ...product,
         id: product.id,
@@ -66,7 +112,7 @@ export async function listProductsForOutlet(outletId: string, params?: { page?: 
         sku: product.sku,
         costPrice: parseFloat(product.costPrice),
         sellPrice: resolveEffectivePrice(product, op),
-        stock: op?.stock ?? product.stock ?? 0,
+        stock: effectiveStock,
         isAvailable: true,
         taxRate: product.taxRate ? parseFloat(product.taxRate) : undefined,
         categoryName: cat?.name || null,

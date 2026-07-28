@@ -78,15 +78,15 @@ export const resolveTenant = async (req: Request, res: Response) => {
 
 export const setupDatabase = async (req: Request, res: Response) => {
   try {
-    const tenantId = req.user?.tenantId;
+    const tenantId = req.params.tenantId || req.body?.tenantId || req.user?.tenantId;
     if (!tenantId) {
-      return res.status(400).json({ error: 'Tenant ID not found in token' });
+      return res.status(400).json({ error: 'Tenant ID is required' });
     }
     
     const result = await tenantService.setupDatabase(tenantId);
     
     res.status(200).json({
-      message: 'Database setup completed successfully',
+      message: `Database setup completed successfully for tenant ${tenantId}`,
       ...result
     });
   } catch (error: any) {
@@ -104,3 +104,62 @@ export const getAllTenants = async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Internal Server Error' });
   }
 };
+
+export const getTenantDetails = async (req: Request, res: Response) => {
+  try {
+    const { tenantId } = req.params;
+    const tenant = await tenantService.getTenantById(tenantId as string);
+    res.status(200).json(tenant);
+  } catch (error: any) {
+    if (error.message === 'TENANT_NOT_FOUND') {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+    console.error('getTenantDetails error:', error);
+    res.status(500).json({ error: 'Failed to fetch tenant details' });
+  }
+};
+
+export const toggleTenantStatus = async (req: Request, res: Response) => {
+  try {
+    const { tenantId } = req.params;
+    const { isActive } = req.body;
+    if (typeof isActive !== 'boolean') {
+      return res.status(400).json({ error: 'isActive boolean field is required' });
+    }
+
+    const result = await tenantService.toggleTenantStatus(tenantId as string, isActive);
+    res.status(200).json({
+      message: `Tenant ${isActive ? 'activated' : 'deactivated'} successfully`,
+      ...result
+    });
+  } catch (error: any) {
+    if (error.message === 'TENANT_NOT_FOUND') {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+    console.error('toggleTenantStatus error:', error);
+    res.status(500).json({ error: 'Failed to update tenant status' });
+  }
+};
+
+export const updateTenantPlan = async (req: Request, res: Response) => {
+  try {
+    const { tenantId } = req.params;
+    const { plan } = req.body;
+    if (!plan || typeof plan !== 'string') {
+      return res.status(400).json({ error: 'plan string field is required' });
+    }
+
+    const result = await tenantService.updateTenantPlan(tenantId as string, plan);
+    res.status(200).json({
+      message: `Tenant subscription plan updated to ${plan}`,
+      ...result
+    });
+  } catch (error: any) {
+    if (error.message === 'TENANT_NOT_FOUND') {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+    console.error('updateTenantPlan error:', error);
+    res.status(500).json({ error: 'Failed to update tenant plan' });
+  }
+};
+

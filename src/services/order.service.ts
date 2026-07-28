@@ -1,13 +1,17 @@
 import { withTenantSchema } from '../db/with-tenant-schema';
 import * as schema from '../db/tenant_schema';
 import * as loyaltyService from './loyalty.service';
-import { eq, desc, sql, and, gte, lte, or } from 'drizzle-orm';
+import { eq, desc, sql, and, gte, lte, or, isNull } from 'drizzle-orm';
 import crypto from 'crypto';
 
 interface CreateOrderInput {
   items: Array<{
     productId: string;
+    variantId?: string;
     productName?: string;
+    selectedVariant?: any;
+    selectedModifiers?: any[];
+    selectedAddOns?: any[];
     quantity: number;
     price: number;
     subtotal: number;
@@ -36,6 +40,39 @@ function padSeq(n: number, len = 4): string {
 
 export async function createOrder(outletId: string, input: CreateOrderInput) {
   return withTenantSchema(async (tx) => {
+    // Enforce active session for checkout
+    let activeSessionQuery = tx
+      .select()
+      .from(schema.cashierSessions)
+      .where(
+        and(
+          eq(schema.cashierSessions.outletId, outletId),
+          eq(schema.cashierSessions.status, 'OPEN'),
+          ...(input.cashierId ? [eq(schema.cashierSessions.cashierId, input.cashierId)] : [])
+        )
+      )
+      .limit(1);
+
+    let [activeSession] = await activeSessionQuery;
+
+    // Fallback: check any open session for the outlet if specific cashier match not found
+    if (!activeSession && input.cashierId) {
+      [activeSession] = await tx
+        .select()
+        .from(schema.cashierSessions)
+        .where(
+          and(
+            eq(schema.cashierSessions.outletId, outletId),
+            eq(schema.cashierSessions.status, 'OPEN')
+          )
+        )
+        .limit(1);
+    }
+
+    if (!activeSession) {
+      throw new Error('No active cashier session found for this outlet. Please open shift register before completing orders.');
+    }
+
     // Fetch outlet + settings for order number generation
     const [outlet] = await tx.select().from(schema.outlets).where(eq(schema.outlets.id, outletId)).limit(1);
     const [tenantDefault] = await tx.select().from(schema.tenantSettings).where(eq(schema.tenantSettings.id, 'default'));
@@ -84,6 +121,7 @@ export async function createOrder(outletId: string, input: CreateOrderInput) {
       id: crypto.randomUUID(),
       idempotencyKey: input.idempotencyKey,
       outletId,
+      sessionId: activeSession.id,
       subtotal: String(input.subtotal),
       taxAmount: String(input.taxAmount),
       discountAmount: String(input.discountAmount),
@@ -104,27 +142,45 @@ export async function createOrder(outletId: string, input: CreateOrderInput) {
 
     if (input.items.length > 0) {
       await tx.insert(schema.orderItems).values(
-        input.items.map(item => ({
-          id: crypto.randomUUID(),
-          orderId: order.id,
-          productId: item.productId,
-          productName: item.productName,
-          quantity: item.quantity,
-          price: String(item.price),
-          subtotal: String(item.subtotal),
-          notes: item.notes,
-        }))
+        input.items.map(item => {
+          const optionsParts: string[] = [];
+          if (item.selectedModifiers && item.selectedModifiers.length > 0) {
+            optionsParts.push(item.selectedModifiers.map((m: any) => m.name).join(', '));
+          }
+          if (item.selectedAddOns && item.selectedAddOns.length > 0) {
+            optionsParts.push(item.selectedAddOns.map((a: any) => `+${a.name}`).join(', '));
+          }
+          if (item.notes) {
+            optionsParts.push(item.notes);
+          }
+          const combinedNotes = optionsParts.join(' | ') || null;
+
+          return {
+            id: crypto.randomUUID(),
+            orderId: order.id,
+            productId: item.productId,
+            productName: item.productName,
+            quantity: item.quantity,
+            price: String(item.price),
+            subtotal: String(item.subtotal),
+            notes: combinedNotes,
+          };
+        })
       );
     }
 
-    // Deduct stock for each item
+    // Deduct stock for each item (variant or base product)
     for (const item of input.items) {
+      const condition = and(
+        eq(schema.outletProducts.outletId, outletId),
+        eq(schema.outletProducts.productId, item.productId),
+        item.variantId ? eq(schema.outletProducts.variantId, item.variantId) : isNull(schema.outletProducts.variantId)
+      );
+
       const [op] = await tx
         .select()
         .from(schema.outletProducts)
-        .where(
-          sql`${schema.outletProducts.outletId} = ${outletId} AND ${schema.outletProducts.productId} = ${item.productId}`
-        )
+        .where(condition)
         .limit(1);
 
       if (op) {
@@ -138,11 +194,12 @@ export async function createOrder(outletId: string, input: CreateOrderInput) {
           id: crypto.randomUUID(),
           outletId,
           productId: item.productId,
+          variantId: item.variantId || null,
           type: 'sale',
           quantityChange: -item.quantity,
           stockAfter: newStock,
           referenceId: order.id,
-          note: `Order ${input.idempotencyKey}`,
+          note: `Order ${order.orderNumber || input.idempotencyKey}`,
           createdBy: input.cashierId,
         });
       }
@@ -276,16 +333,29 @@ export async function getOrderSummary(filters: { outletId?: string; period?: str
       if (filters.to) conditions.push(lte(schema.orders.createdAt, new Date(filters.to)));
     }
 
-    const [stats] = await tx
+    const [orderStats] = await tx
       .select({
         revenue: sql<number>`cast(coalesce(sum(${schema.orders.totalAmount}::numeric), 0) as float)`,
-        totalOrders: sql<number>`cast(count(distinct ${schema.orders.id}) as int)`,
+        totalOrders: sql<number>`cast(count(*) as int)`,
         avgOrderValue: sql<number>`cast(coalesce(avg(${schema.orders.totalAmount}::numeric), 0) as float)`,
-        itemsSold: sql<number>`cast(coalesce(sum(${schema.orderItems.quantity}), 0) as int)`,
       })
       .from(schema.orders)
-      .leftJoin(schema.orderItems, eq(schema.orderItems.orderId, schema.orders.id))
       .where(and(...conditions));
+
+    const [itemStats] = await tx
+      .select({
+        itemsSold: sql<number>`cast(coalesce(sum(${schema.orderItems.quantity}), 0) as int)`,
+      })
+      .from(schema.orderItems)
+      .innerJoin(schema.orders, eq(schema.orders.id, schema.orderItems.orderId))
+      .where(and(...conditions));
+
+    const stats = {
+      revenue: orderStats?.revenue || 0,
+      totalOrders: orderStats?.totalOrders || 0,
+      avgOrderValue: orderStats?.avgOrderValue || 0,
+      itemsSold: itemStats?.itemsSold || 0,
+    };
 
     const paymentMethods = await tx
       .select({

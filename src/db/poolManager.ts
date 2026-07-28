@@ -13,9 +13,10 @@ export const publicDb = drizzle(publicPool, { schema: sharedSchema });
 
 // Pool manager for Tenant DB connections
 // This uses PgBouncer for efficient transaction pooling
-const tenantPool = new Pool({
+export const tenantPool = new Pool({
   connectionString: process.env.PGBOUNCER_URL || process.env.DATABASE_URL,
   max: 20, // PgBouncer handles multiplexing, so this is just the client pool size
   idleTimeoutMillis: 30000,
 });
 export const tenantDbPool = drizzle(tenantPool);
+

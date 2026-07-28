@@ -7,12 +7,14 @@ import {
 } from '../../services/login-lockout.service';
 import { TooManyRequestsError } from '../../utils/errors';
 
-const mockGet = vi.fn();
-const mockSetEx = vi.fn();
-const mockDel = vi.fn();
-const mockIncr = vi.fn();
-const mockExpire = vi.fn();
-const mockTtl = vi.fn();
+const { mockGet, mockSetEx, mockDel, mockIncr, mockExpire, mockTtl } = vi.hoisted(() => ({
+  mockGet: vi.fn(),
+  mockSetEx: vi.fn(),
+  mockDel: vi.fn(),
+  mockIncr: vi.fn(),
+  mockExpire: vi.fn(),
+  mockTtl: vi.fn(),
+}));
 
 vi.mock('../../config/redis', () => ({
   default: {

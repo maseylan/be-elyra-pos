@@ -22,6 +22,11 @@ import {
 } from './controllers/loyalty.controller';
 import { resolveOutletContext } from './middlewares/outlet-context.middleware';
 
+import { createVariant, getVariants, updateVariant, deleteVariant, updateOutletVariant } from './controllers/variant.controller';
+import { createModifierGroup, getModifierGroups, createModifier, updateModifierGroup, updateModifier, deleteModifier, updateOutletModifier } from './controllers/modifier.controller';
+import { createAddOn, getAddOns, attachAddOn, detachAddOn, updateOutletAddOn } from './controllers/addon.controller';
+import { getActiveSession, openSession, closeSession, forceCloseSession, getSessionHistory } from './controllers/session.controller';
+
 const apiRouter = Router();
 
 // All routes in this router require tenant-operational session type
@@ -36,6 +41,39 @@ apiRouter.get('/products/:id', requireAuth, authorizeTenantAccess, resolveOutlet
 apiRouter.post('/products', requireAuth, authorizeTenantAccess, requireAdminOrOwner, createProduct);
 apiRouter.put('/products/:id', requireAuth, authorizeTenantAccess, requireAdminOrOwner, updateProduct);
 apiRouter.delete('/products/:id', requireAuth, authorizeTenantAccess, requireAdminOrOwner, deleteProduct);
+
+// Product Variant Routes
+apiRouter.post('/products/:productId/variants', requireAuth, authorizeTenantAccess, requireAdminOrOwner, createVariant);
+apiRouter.get('/products/:productId/variants', requireAuth, authorizeTenantAccess, resolveOutletContext, getVariants);
+apiRouter.patch('/variants/:variantId', requireAuth, authorizeTenantAccess, requireAdminOrOwner, updateVariant);
+apiRouter.delete('/variants/:variantId', requireAuth, authorizeTenantAccess, requireAdminOrOwner, deleteVariant);
+apiRouter.put('/outlets/:outletId/variants/:variantId', requireAuth, authorizeTenantAccess, updateOutletVariant);
+
+// Modifier Group & Item Routes
+apiRouter.post('/products/:productId/modifier-groups', requireAuth, authorizeTenantAccess, requireAdminOrOwner, createModifierGroup);
+apiRouter.get('/products/:productId/modifier-groups', requireAuth, authorizeTenantAccess, resolveOutletContext, getModifierGroups);
+apiRouter.post('/modifier-groups/:groupId/modifiers', requireAuth, authorizeTenantAccess, requireAdminOrOwner, createModifier);
+apiRouter.patch('/modifier-groups/:groupId', requireAuth, authorizeTenantAccess, requireAdminOrOwner, updateModifierGroup);
+apiRouter.patch('/modifiers/:modifierId', requireAuth, authorizeTenantAccess, requireAdminOrOwner, updateModifier);
+apiRouter.delete('/modifiers/:modifierId', requireAuth, authorizeTenantAccess, requireAdminOrOwner, deleteModifier);
+apiRouter.put('/outlets/:outletId/modifiers/:modifierId', requireAuth, authorizeTenantAccess, updateOutletModifier);
+
+// Add-on Routes (supporting both /add-ons and /addons endpoints)
+apiRouter.post('/add-ons', requireAuth, authorizeTenantAccess, requireAdminOrOwner, createAddOn);
+apiRouter.post('/addons', requireAuth, authorizeTenantAccess, requireAdminOrOwner, createAddOn);
+
+apiRouter.get('/add-ons', requireAuth, authorizeTenantAccess, resolveOutletContext, getAddOns);
+apiRouter.get('/addons', requireAuth, authorizeTenantAccess, resolveOutletContext, getAddOns);
+
+apiRouter.post('/products/:productId/add-ons', requireAuth, authorizeTenantAccess, requireAdminOrOwner, attachAddOn);
+apiRouter.post('/products/:productId/addons', requireAuth, authorizeTenantAccess, requireAdminOrOwner, attachAddOn);
+
+apiRouter.delete('/products/:productId/add-ons/:addOnId', requireAuth, authorizeTenantAccess, requireAdminOrOwner, detachAddOn);
+apiRouter.delete('/products/:productId/addons/:addOnId', requireAuth, authorizeTenantAccess, requireAdminOrOwner, detachAddOn);
+
+apiRouter.put('/outlets/:outletId/add-ons/:addOnId', requireAuth, authorizeTenantAccess, updateOutletAddOn);
+apiRouter.put('/outlets/:outletId/addons/:addOnId', requireAuth, authorizeTenantAccess, updateOutletAddOn);
+
 
 // Stock routes
 apiRouter.get('/stock-movements', requireAuth, authorizeTenantAccess, resolveOutletContext, getStockMovements);
@@ -60,6 +98,15 @@ apiRouter.put('/settings', requireAuth, authorizeTenantAccess, requireAdminOrOwn
 // Outlet settings routes
 apiRouter.get('/settings/outlet/:outletId', requireAuth, authorizeTenantAccess, getOutletSettings);
 apiRouter.put('/settings/outlet/:outletId', requireAuth, authorizeTenantAccess, requireAdminOrOwner, updateOutletSettings);
+
+// Shift Register Session routes
+const requireSupervisorOrAdmin = requireRole(['supervisor', 'admin', 'owner']);
+
+apiRouter.get('/sessions/active', requireAuth, authorizeTenantAccess, resolveOutletContext, getActiveSession);
+apiRouter.post('/sessions/open', requireAuth, authorizeTenantAccess, resolveOutletContext, openSession);
+apiRouter.post('/sessions/close', requireAuth, authorizeTenantAccess, resolveOutletContext, closeSession);
+apiRouter.post('/sessions/:id/force-close', requireAuth, authorizeTenantAccess, requireSupervisorOrAdmin, forceCloseSession);
+apiRouter.get('/sessions', requireAuth, authorizeTenantAccess, resolveOutletContext, requireSupervisorOrAdmin, getSessionHistory);
 
 // Order routes (outlet context required — resolved via X-Outlet-Id header)
 apiRouter.post('/orders', requireAuth, authorizeTenantAccess, resolveOutletContext, createOrder);

@@ -6,7 +6,11 @@ const createOrderSchema = z.object({
   idempotencyKey: z.string().min(1),
   items: z.array(z.object({
     productId: z.string().uuid(),
+    variantId: z.string().uuid().optional(),
     productName: z.string().optional(),
+    selectedVariant: z.any().optional(),
+    selectedModifiers: z.any().optional(),
+    selectedAddOns: z.any().optional(),
     quantity: z.number().int().min(1),
     price: z.number().min(0),
     subtotal: z.number().min(0),
@@ -64,8 +68,18 @@ export const createOrder = async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Outlet context required' });
   }
 
+  // Extract current authenticated user
+  const authUserId = req.auth?.userId || req.user?.userId || (req.user as any)?.id;
+  const authUserName = req.auth?.name || (req.user as any)?.name || req.auth?.email || 'Kasir';
+
+  const payload = {
+    ...parsed.data,
+    cashierId: parsed.data.cashierId || authUserId,
+    cashierName: parsed.data.cashierName && parsed.data.cashierName !== 'Kasir Default' ? parsed.data.cashierName : authUserName,
+  };
+
   try {
-    const order = await orderService.createOrder(outletId, parsed.data);
+    const order = await orderService.createOrder(outletId, payload);
     res.status(201).json(order);
   } catch (error: any) {
     if (error?.message?.includes('idempotency_key')) {
@@ -82,10 +96,17 @@ export const listOrders = async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Invalid query', details: query.error.flatten() });
   }
 
-  const outletId = (req as any).outletId;
+  const queryOutlet = req.query.outletId as string | undefined;
+  let targetOutletId: string | undefined = undefined;
+
+  if (queryOutlet && queryOutlet !== '' && queryOutlet !== 'all') {
+    targetOutletId = queryOutlet;
+  } else if (!queryOutlet && (req as any).outletId && req.baseUrl.includes('/outlets/')) {
+    targetOutletId = (req as any).outletId;
+  }
 
   try {
-    const result = await orderService.listOrders({ outletId, ...query.data });
+    const result = await orderService.listOrders({ ...query.data, outletId: targetOutletId });
     res.json(result);
   } catch (error: any) {
     console.error('Failed to list orders', error);
@@ -119,10 +140,17 @@ export const getOrderSummary = async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Invalid query', details: query.error.flatten() });
   }
 
-  const outletId = (req as any).outletId;
+  const queryOutlet = req.query.outletId as string | undefined;
+  let targetOutletId: string | undefined = undefined;
+
+  if (queryOutlet && queryOutlet !== '' && queryOutlet !== 'all') {
+    targetOutletId = queryOutlet;
+  } else if (!queryOutlet && (req as any).outletId && req.baseUrl.includes('/outlets/')) {
+    targetOutletId = (req as any).outletId;
+  }
 
   try {
-    const result = await orderService.getOrderSummary({ outletId, ...query.data });
+    const result = await orderService.getOrderSummary({ ...query.data, outletId: targetOutletId });
     res.json(result);
   } catch (error: any) {
     console.error('Failed to get order summary', error);
