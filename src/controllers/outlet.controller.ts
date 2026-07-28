@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
+import { HttpError } from '../utils/errors';
 import * as outletService from '../services/outlet.service';
 
 const createOutletSchema = z.object({
@@ -46,7 +47,7 @@ export const getOutlet = async (req: Request, res: Response) => {
     const outlet = await outletService.getOutletById(parsedParams.data.id);
     res.json(outlet);
   } catch (error) {
-    if (error instanceof outletService.OutletNotFoundError) {
+    if (error instanceof HttpError) {
       return res.status(404).json({ error: error.message });
     }
     console.error('Failed to fetch outlet', error);
@@ -79,7 +80,7 @@ export const updateOutlet = async (req: Request, res: Response) => {
     const outlet = await outletService.updateOutlet(parsedParams.data.id, parsed.data);
     res.json(outlet);
   } catch (error) {
-    if (error instanceof outletService.OutletNotFoundError) {
+    if (error instanceof HttpError) {
       return res.status(404).json({ error: error.message });
     }
     console.error('Failed to update outlet', error);
@@ -96,7 +97,7 @@ export const deactivateOutlet = async (req: Request, res: Response) => {
     await outletService.deactivateOutlet(parsedParams.data.id);
     res.json({ success: true });
   } catch (error) {
-    if (error instanceof outletService.OutletNotFoundError) {
+    if (error instanceof HttpError) {
       return res.status(404).json({ error: error.message });
     }
     console.error('Failed to deactivate outlet', error);

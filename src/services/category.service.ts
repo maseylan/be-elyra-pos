@@ -2,13 +2,7 @@ import { withTenantSchema } from '../db/with-tenant-schema';
 import * as schema from '../db/tenant_schema';
 import { eq } from 'drizzle-orm';
 import crypto from 'crypto';
-
-export class CategoryNotFoundError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'CategoryNotFoundError';
-  }
-}
+import { HttpError } from '../utils/errors';
 
 export async function createCategory(input: { name: string; description?: string }) {
   const id = crypto.randomUUID();
@@ -35,7 +29,7 @@ export async function getCategoryById(id: string) {
   });
   
   if (!category || !category.isActive) {
-    throw new CategoryNotFoundError(`Category ${id} not found`);
+    throw new HttpError(404,`Category ${id} not found`);
   }
   
   return category;
@@ -54,7 +48,7 @@ export async function updateCategory(id: string, input: { name?: string; descrip
   });
   
   if (updated.length === 0) {
-    throw new CategoryNotFoundError(`Category ${id} not found`);
+    throw new HttpError(404,`Category ${id} not found`);
   }
   
   return updated[0];
@@ -69,7 +63,7 @@ export async function deleteCategory(id: string) {
   });
   
   if (updated.length === 0) {
-    throw new CategoryNotFoundError(`Category ${id} not found`);
+    throw new HttpError(404,`Category ${id} not found`);
   }
   
   return updated[0];

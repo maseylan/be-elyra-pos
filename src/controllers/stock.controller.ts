@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { HttpError } from '../utils/errors';
 import * as stockService from '../services/stock.service';
 
 const movementsQuerySchema = z.object({
@@ -62,7 +63,7 @@ export const adjustStock = async (req: Request, res: Response, next: NextFunctio
     });
     res.json(result);
   } catch (error) {
-    if (error instanceof stockService.StockError) {
+    if (error instanceof HttpError) {
       return res.status(400).json({ error: error.message });
     }
     next(error);

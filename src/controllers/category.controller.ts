@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import * as categoryService from '../services/category.service';
-import { CategoryNotFoundError } from '../services/category.service';
+import { HttpError } from '../utils/errors';
 
 const categorySchema = z.object({
   name: z.string().min(1).max(100),
@@ -45,7 +45,7 @@ export const getCategoryById = async (req: Request, res: Response) => {
     const category = await categoryService.getCategoryById(parsedParams.data.id);
     res.json(category);
   } catch (error) {
-    if (error instanceof CategoryNotFoundError) {
+    if (error instanceof HttpError) {
       return res.status(404).json({ error: error.message });
     }
     console.error('Failed to fetch category detail', error);
@@ -72,7 +72,7 @@ export const updateCategory = async (req: Request, res: Response) => {
     const category = await categoryService.updateCategory(parsedParams.data.id, parsedBody.data as any);
     res.json(category);
   } catch (error) {
-    if (error instanceof CategoryNotFoundError) {
+    if (error instanceof HttpError) {
       return res.status(404).json({ error: error.message });
     }
     console.error('Failed to update category', error);
@@ -90,7 +90,7 @@ export const deleteCategory = async (req: Request, res: Response) => {
     await categoryService.deleteCategory(parsedParams.data.id);
     res.status(204).send();
   } catch (error) {
-    if (error instanceof CategoryNotFoundError) {
+    if (error instanceof HttpError) {
       return res.status(404).json({ error: error.message });
     }
     console.error('Failed to delete category', error);

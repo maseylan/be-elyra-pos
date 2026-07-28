@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { tenantDbPool as dbPool, tenantPool } from './poolManager';
 import { getCurrentTenant } from '../contexts/tenant-context';
-import { PaymentRequiredError } from '../utils/errors';
+import { HttpError } from '../utils/errors';
 
 const initializedTenantSchemas = new Set<string>();
 
@@ -140,7 +140,7 @@ export async function withTenantSchema<T>(fn: (tx: any) => Promise<T>): Promise<
   const { schemaName, status } = getCurrentTenant(); // throws kalau kosong
 
   if (status === 'expired') {
-    throw new PaymentRequiredError('Your subscription has ended. Please make payment to continue.');
+    throw new HttpError(402, 'Your subscription has ended. Please make payment to continue.');
   }
 
   // Sanitize schema name secara ketat

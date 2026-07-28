@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { HttpError } from '../utils/errors';
 import * as sessionService from '../services/session.service';
 
 const openSessionSchema = z.object({
@@ -56,9 +57,7 @@ export const openSession = async (req: Request, res: Response, next: NextFunctio
 
     return res.status(201).json({ message: 'Shift berhasil dibuka', data: session });
   } catch (error: any) {
-    if (error instanceof sessionService.SessionConflictError) {
-      return res.status(409).json({ error: error.message });
-    }
+    if (error instanceof HttpError) return res.status(error.statusCode).json({ error: error.message });
     next(error);
   }
 };
@@ -81,9 +80,7 @@ export const closeSession = async (req: Request, res: Response, next: NextFuncti
 
     return res.json({ message: 'Shift berhasil ditutup', data: session });
   } catch (error: any) {
-    if (error instanceof sessionService.SessionNotFoundError) {
-      return res.status(404).json({ error: error.message });
-    }
+    if (error instanceof HttpError) return res.status(error.statusCode).json({ error: error.message });
     next(error);
   }
 };
@@ -108,9 +105,7 @@ export const forceCloseSession = async (req: Request, res: Response, next: NextF
 
     return res.json({ message: 'Shift berhasil ditutup paksa oleh Supervisor', data: session });
   } catch (error: any) {
-    if (error instanceof sessionService.SessionNotFoundError) {
-      return res.status(404).json({ error: error.message });
-    }
+    if (error instanceof HttpError) return res.status(error.statusCode).json({ error: error.message });
     next(error);
   }
 };

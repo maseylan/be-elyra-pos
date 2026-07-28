@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import * as productService from '../services/product.service';
 import * as outletProductService from '../services/outlet-product.service';
-import { ProductNotFoundError } from '../services/product.service';
+import { HttpError } from '../utils/errors';
 
 const createProductSchema = z.object({
   sku: z.string().min(1).max(64),
@@ -69,7 +69,7 @@ export const getProductById = async (req: Request, res: Response, next: NextFunc
     const product = await productService.getProductById(parsedParams.data.id, outletId);
     res.json(product);
   } catch (error) {
-    if (error instanceof ProductNotFoundError) {
+    if (error instanceof HttpError) {
       return res.status(404).json({ error: error.message });
     }
     next(error);
@@ -125,7 +125,7 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
     } as any);
     res.json(product);
   } catch (error) {
-    if (error instanceof ProductNotFoundError) {
+    if (error instanceof HttpError) {
       return res.status(404).json({ error: error.message });
     }
     next(error);
@@ -141,7 +141,7 @@ export const deleteProduct = async (req: Request, res: Response, next: NextFunct
     await productService.deleteProduct(parsedParams.data.id);
     res.json({ success: true });
   } catch (error) {
-    if (error instanceof ProductNotFoundError) {
+    if (error instanceof HttpError) {
       return res.status(404).json({ error: error.message });
     }
     next(error);

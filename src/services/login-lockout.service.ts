@@ -1,5 +1,5 @@
 import redisClient from '../config/redis';
-import { TooManyRequestsError } from '../utils/errors';
+import { HttpError } from '../utils/errors';
 
 const MAX_PASSWORD_ATTEMPTS = 5;
 const MAX_PIN_ATTEMPTS = 3;
@@ -18,7 +18,7 @@ export async function checkLoginLockout(scope: string, identifier: string): Prom
   const isLocked = await redisClient.get(lockoutKey(scope, identifier));
   if (isLocked) {
     const ttl = await redisClient.ttl(lockoutKey(scope, identifier));
-    throw new TooManyRequestsError(
+    throw new HttpError(429,
       `Terlalu banyak percobaan gagal. Coba lagi dalam ${Math.ceil(ttl / 60)} menit.`
     );
   }

@@ -1,6 +1,7 @@
 import { eq, and, sql, gte, lte, desc } from 'drizzle-orm';
 import { withTenantSchema } from '../db/with-tenant-schema';
 import { cashierSessions, orders } from '../db/tenant_schema';
+import { HttpError } from '../utils/errors';
 import * as outletSettingsService from './outlet-settings.service';
 
 export interface OpenSessionParams {
@@ -31,20 +32,6 @@ export interface SessionHistoryFilters {
   endDate?: string;
   cashierId?: string;
   status?: string;
-}
-
-export class SessionConflictError extends Error {
-  constructor(message = 'A session is already open for this cashier in this outlet') {
-    super(message);
-    this.name = 'SessionConflictError';
-  }
-}
-
-export class SessionNotFoundError extends Error {
-  constructor(message = 'Active cashier session not found') {
-    super(message);
-    this.name = 'SessionNotFoundError';
-  }
 }
 
 export const getActiveSession = async (outletId: string, cashierId: string) => {
@@ -142,166 +129,88 @@ export const openSession = async (params: OpenSessionParams) => {
     } catch (error: any) {
       // Postgres unique constraint violation code
       if (error?.code === '23505' || error?.message?.includes('idx_one_open_session_per_cashier_outlet')) {
-        throw new SessionConflictError('Kasir ini sudah memiliki session Buka Shift yang aktif di outlet ini.');
+        throw new HttpError(409, 'Kasir ini sudah memiliki session Buka Shift yang aktif di outlet ini.');
       }
       throw error;
     }
   });
 };
 
+async function computeCloseData(tx: any, sessionId: string) {
+  const [session] = await tx
+    .select()
+    .from(cashierSessions)
+    .where(and(eq(cashierSessions.id, sessionId), eq(cashierSessions.status, 'OPEN')))
+    .limit(1);
+
+  if (!session) throw new HttpError(404, 'Session shift tidak ditemukan atau sudah ditutup');
+
+  const completedOrders = await tx
+    .select({ paymentMethod: orders.paymentMethod, totalAmount: orders.totalAmount })
+    .from(orders)
+    .where(and(eq(orders.sessionId, session.id), sql`LOWER(${orders.status}) = 'completed'`));
+
+  const refundedOrders = await tx
+    .select({ totalAmount: orders.totalAmount })
+    .from(orders)
+    .where(and(eq(orders.sessionId, session.id), sql`LOWER(${orders.status}) IN ('refunded', 'void')`));
+
+  const paymentBreakdown: Record<string, number> = {};
+  let totalCashSales = 0;
+  for (const ord of completedOrders) {
+    const pm = (ord.paymentMethod || 'CASH').toUpperCase();
+    const amt = Number(ord.totalAmount || 0);
+    paymentBreakdown[pm] = (paymentBreakdown[pm] || 0) + amt;
+    if (pm === 'CASH') totalCashSales += amt;
+  }
+
+  const startingCash = Number(session.startingCash || 0);
+  return { session, completedOrders, refundedOrders, paymentBreakdown, totalCashSales, startingCash };
+}
+
 export const closeSession = async (params: CloseSessionParams) => {
   return withTenantSchema(async (tx) => {
-    const [session] = await tx
-      .select()
-      .from(cashierSessions)
-      .where(and(eq(cashierSessions.id, params.sessionId), eq(cashierSessions.status, 'OPEN')))
-      .limit(1);
-
-    if (!session) {
-      throw new SessionNotFoundError('Session shift tidak ditemukan atau sudah ditutup');
-    }
-
-    // Get all completed orders for snapshot
-    const completedOrders = await tx
-      .select({
-        paymentMethod: orders.paymentMethod,
-        totalAmount: orders.totalAmount,
-      })
-      .from(orders)
-      .where(
-        and(
-          eq(orders.sessionId, session.id),
-          sql`LOWER(${orders.status}) = 'completed'`
-        )
-      );
-
-    // Get refunded / void orders
-    const refundedOrders = await tx
-      .select({
-        totalAmount: orders.totalAmount,
-      })
-      .from(orders)
-      .where(
-        and(
-          eq(orders.sessionId, session.id),
-          sql`LOWER(${orders.status}) IN ('refunded', 'void')`
-        )
-      );
-
-    const paymentBreakdown: Record<string, number> = {};
-    let totalCashSales = 0;
-
-    for (const ord of completedOrders) {
-      const pm = (ord.paymentMethod || 'CASH').toUpperCase();
-      const amt = Number(ord.totalAmount || 0);
-      paymentBreakdown[pm] = (paymentBreakdown[pm] || 0) + amt;
-      if (pm === 'CASH') {
-        totalCashSales += amt;
-      }
-    }
-
-    const totalRefunds = refundedOrders.reduce((sum, r) => sum + Number(r.totalAmount || 0), 0);
-    const startingCash = Number(session.startingCash || 0);
-    const expectedCash = startingCash + totalCashSales;
+    const data = await computeCloseData(tx, params.sessionId);
+    const expectedCash = data.startingCash + data.totalCashSales;
+    const totalRefunds = data.refundedOrders.reduce((sum: number, r: any) => sum + Number(r.totalAmount || 0), 0);
     const endingCash = Number(params.endingCash);
-    const cashDifference = endingCash - expectedCash;
 
     const [updatedSession] = await tx
       .update(cashierSessions)
       .set({
-        status: 'CLOSED',
-        closedAt: new Date(),
-        endingCash: endingCash.toString(),
-        expectedCash: expectedCash.toString(),
-        cashDifference: cashDifference.toString(),
-        paymentBreakdown,
-        totalRefunds: totalRefunds.toString(),
-        totalOrdersCount: completedOrders.length,
-        closedBy: params.closedBy,
-        closingNotes: params.closingNotes,
-        updatedAt: new Date(),
+        status: 'CLOSED', closedAt: new Date(),
+        endingCash: endingCash.toString(), expectedCash: expectedCash.toString(),
+        cashDifference: (endingCash - expectedCash).toString(),
+        paymentBreakdown: data.paymentBreakdown, totalRefunds: totalRefunds.toString(),
+        totalOrdersCount: data.completedOrders.length,
+        closedBy: params.closedBy, closingNotes: params.closingNotes, updatedAt: new Date(),
       })
-      .where(eq(cashierSessions.id, session.id))
+      .where(eq(cashierSessions.id, data.session.id))
       .returning();
-
     return updatedSession;
   });
 };
 
 export const forceCloseSession = async (params: ForceCloseSessionParams) => {
   return withTenantSchema(async (tx) => {
-    const [session] = await tx
-      .select()
-      .from(cashierSessions)
-      .where(and(eq(cashierSessions.id, params.sessionId), eq(cashierSessions.status, 'OPEN')))
-      .limit(1);
-
-    if (!session) {
-      throw new SessionNotFoundError('Session shift tidak ditemukan atau sudah ditutup');
-    }
-
-    const completedOrders = await tx
-      .select({
-        paymentMethod: orders.paymentMethod,
-        totalAmount: orders.totalAmount,
-      })
-      .from(orders)
-      .where(
-        and(
-          eq(orders.sessionId, session.id),
-          sql`LOWER(${orders.status}) = 'completed'`
-        )
-      );
-
-    const refundedOrders = await tx
-      .select({
-        totalAmount: orders.totalAmount,
-      })
-      .from(orders)
-      .where(
-        and(
-          eq(orders.sessionId, session.id),
-          sql`LOWER(${orders.status}) IN ('refunded', 'void')`
-        )
-      );
-
-    const paymentBreakdown: Record<string, number> = {};
-    let totalCashSales = 0;
-
-    for (const ord of completedOrders) {
-      const pm = (ord.paymentMethod || 'CASH').toUpperCase();
-      const amt = Number(ord.totalAmount || 0);
-      paymentBreakdown[pm] = (paymentBreakdown[pm] || 0) + amt;
-      if (pm === 'CASH') {
-        totalCashSales += amt;
-      }
-    }
-
-    const totalRefunds = refundedOrders.reduce((sum, r) => sum + Number(r.totalAmount || 0), 0);
-    const startingCash = Number(session.startingCash || 0);
-    const expectedCash = startingCash + totalCashSales;
-    const endingCash = params.endingCash !== undefined && params.endingCash !== null ? Number(params.endingCash) : null;
-    const cashDifference = endingCash !== null ? endingCash - expectedCash : null;
+    const data = await computeCloseData(tx, params.sessionId);
+    const expectedCash = data.startingCash + data.totalCashSales;
+    const totalRefunds = data.refundedOrders.reduce((sum: number, r: any) => sum + Number(r.totalAmount || 0), 0);
+    const endingCash = params.endingCash != null ? Number(params.endingCash) : null;
 
     const [updatedSession] = await tx
       .update(cashierSessions)
       .set({
-        status: 'CLOSED',
-        closedAt: new Date(),
-        endingCash: endingCash !== null ? endingCash.toString() : null,
-        expectedCash: expectedCash.toString(),
-        cashDifference: cashDifference !== null ? cashDifference.toString() : null,
-        paymentBreakdown,
-        totalRefunds: totalRefunds.toString(),
-        totalOrdersCount: completedOrders.length,
-        closedBy: params.supervisorId,
-        forceClosedReason: params.reason,
-        closingNotes: params.closingNotes,
-        updatedAt: new Date(),
+        status: 'CLOSED', closedAt: new Date(),
+        endingCash: endingCash?.toString() ?? null, expectedCash: expectedCash.toString(),
+        cashDifference: endingCash != null ? (endingCash - expectedCash).toString() : null,
+        paymentBreakdown: data.paymentBreakdown, totalRefunds: totalRefunds.toString(),
+        totalOrdersCount: data.completedOrders.length,
+        closedBy: params.supervisorId, forceClosedReason: params.reason,
+        closingNotes: params.closingNotes, updatedAt: new Date(),
       })
-      .where(eq(cashierSessions.id, session.id))
+      .where(eq(cashierSessions.id, data.session.id))
       .returning();
-
     return updatedSession;
   });
 };

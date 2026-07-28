@@ -5,7 +5,7 @@ import {
   resetLoginAttempts,
   getLoginScope,
 } from '../../services/login-lockout.service';
-import { TooManyRequestsError } from '../../utils/errors';
+import { HttpError } from '../../utils/errors';
 
 const { mockGet, mockSetEx, mockDel, mockIncr, mockExpire, mockTtl } = vi.hoisted(() => ({
   mockGet: vi.fn(),
@@ -42,7 +42,7 @@ describe('Login lockout', () => {
 
       await expect(
         checkLoginLockout('superadmin', 'admin@test.com'),
-      ).rejects.toThrow(TooManyRequestsError);
+      ).rejects.toThrow(HttpError);
     });
 
     it('tidak melempar error jika tidak ter-lock', async () => {

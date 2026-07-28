@@ -9,7 +9,7 @@ import * as tenantSchema from '../db/tenant_schema';
 import { signAccessToken, generateRefreshToken, hashToken, rotateRefreshToken } from '../services/token.service';
 import { checkLoginLockout, recordFailedLogin, resetLoginAttempts, getLoginScope } from '../services/login-lockout.service';
 import { getCurrentTenant } from '../contexts/tenant-context';
-import { UnauthorizedError } from '../utils/errors';
+import { HttpError } from '../utils/errors';
 
 const router = Router();
 
@@ -227,7 +227,7 @@ router.post('/refresh', async (req: Request, res: Response) => {
         .for('update');
 
       if (!existing || existing.expiresAt < new Date()) {
-        throw new UnauthorizedError('Invalid or expired refresh token');
+        throw new HttpError(401, 'Invalid or expired refresh token');
       }
 
       const { plain, hash } = generateRefreshToken();
@@ -259,7 +259,7 @@ router.post('/refresh', async (req: Request, res: Response) => {
     setRefreshCookie(res, result.refreshTokenPlain);
     res.json({ accessToken: result.accessToken });
   } catch (error: any) {
-    if (error instanceof UnauthorizedError) {
+    if (error instanceof HttpError) {
       clearRefreshCookie(res);
       return res.status(401).json({ error: error.message });
     }

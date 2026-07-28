@@ -2,13 +2,7 @@ import { withTenantSchema } from '../db/with-tenant-schema';
 import * as schema from '../db/tenant_schema';
 import { eq, and, notInArray, inArray, sql, or, isNull } from 'drizzle-orm';
 import crypto from 'crypto';
-
-export class ProductNotFoundError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ProductNotFoundError';
-  }
-}
+import { HttpError } from '../utils/errors';
 
 interface CreateProductInput {
   sku: string;
@@ -160,7 +154,7 @@ export async function getProductById(id: string, outletId?: string) {
     const product = results[0];
 
     if (!product) {
-      throw new ProductNotFoundError(`Product ${id} not found`);
+      throw new HttpError(404,`Product ${id} not found`);
     }
 
     let availableAt: any[] = [];
@@ -369,7 +363,7 @@ export async function deleteProduct(id: string) {
   });
   
   if (updated.length === 0) {
-    throw new ProductNotFoundError(`Product ${id} not found`);
+    throw new HttpError(404,`Product ${id} not found`);
   }
   
   return updated[0];
@@ -457,7 +451,7 @@ export async function updateProduct(id: string, input: Partial<CreateProductInpu
   });
   
   if (!updated) {
-    throw new ProductNotFoundError(`Product ${id} not found`);
+    throw new HttpError(404,`Product ${id} not found`);
   }
   
   return updated;

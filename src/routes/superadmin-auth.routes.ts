@@ -6,7 +6,7 @@ import { publicDb } from '../db/poolManager';
 import { superAdmins, superadminRefreshTokens } from '../db/schema';
 import { signAccessToken, generateRefreshToken, hashToken, rotateRefreshToken } from '../services/token.service';
 import { checkLoginLockout, recordFailedLogin, resetLoginAttempts } from '../services/login-lockout.service';
-import { UnauthorizedError } from '../utils/errors';
+import { HttpError } from '../utils/errors';
 
 const router = Router();
 
@@ -116,7 +116,7 @@ router.post('/refresh', async (req: Request, res: Response) => {
     setRefreshCookie(res, result.refreshTokenPlain);
     res.json({ accessToken: result.accessToken });
   } catch (error: any) {
-    if (error instanceof UnauthorizedError) {
+    if (error instanceof HttpError) {
       clearRefreshCookie(res);
       return res.status(401).json({ error: error.message });
     }

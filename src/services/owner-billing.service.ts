@@ -1,11 +1,11 @@
 import { eq, sql, desc, like, and } from 'drizzle-orm';
 import { publicDb } from '../db/poolManager';
 import { tenants, subscriptionPlans, invoices, paymentTransactions } from '../db/schema';
-import { NotFoundError, ConflictError } from '../utils/errors';
+import { HttpError } from '../utils/errors';
 
 export async function getSubscription(tenantId: string) {
   const [tenant] = await publicDb.select().from(tenants).where(eq(tenants.id, tenantId));
-  if (!tenant) throw new NotFoundError('Tenant tidak ditemukan');
+  if (!tenant) throw new HttpError(404, 'Tenant tidak ditemukan');
 
   let plan = null;
   if (tenant.subscriptionType) {
@@ -38,7 +38,7 @@ export async function getSubscription(tenantId: string) {
 
 export async function getAvailablePlans(tenantId: string) {
   const [tenant] = await publicDb.select().from(tenants).where(eq(tenants.id, tenantId));
-  if (!tenant) throw new NotFoundError('Tenant tidak ditemukan');
+  if (!tenant) throw new HttpError(404, 'Tenant tidak ditemukan');
 
   const allPlans = await publicDb
     .select()
@@ -94,7 +94,7 @@ export async function getInvoiceDetail(invoiceId: string, tenantId: string) {
     .leftJoin(subscriptionPlans, eq(invoices.planId, subscriptionPlans.id))
     .where(and(eq(invoices.id, invoiceId), eq(invoices.tenantId, tenantId)));
 
-  if (!invoice) throw new NotFoundError('Invoice tidak ditemukan');
+  if (!invoice) throw new HttpError(404, 'Invoice tidak ditemukan');
 
   const payments = await publicDb
     .select()
@@ -107,13 +107,13 @@ export async function getInvoiceDetail(invoiceId: string, tenantId: string) {
 
 export async function upgradePlan(tenantId: string, newPlanId: string) {
   const [tenant] = await publicDb.select().from(tenants).where(eq(tenants.id, tenantId));
-  if (!tenant) throw new NotFoundError('Tenant tidak ditemukan');
+  if (!tenant) throw new HttpError(404, 'Tenant tidak ditemukan');
 
   const [plan] = await publicDb.select().from(subscriptionPlans).where(eq(subscriptionPlans.id, newPlanId));
-  if (!plan || !plan.isActive) throw new NotFoundError('Plan tidak ditemukan atau tidak aktif');
+  if (!plan || !plan.isActive) throw new HttpError(404, 'Plan tidak ditemukan atau tidak aktif');
 
   if (plan.id === tenant.subscriptionType) {
-    throw new ConflictError('Anda sudah menggunakan plan ini');
+    throw new HttpError(409, 'Anda sudah menggunakan plan ini');
   }
 
   if (plan.id === 'enterprise') {

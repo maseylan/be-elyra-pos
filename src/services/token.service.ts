@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { eq } from 'drizzle-orm';
-import { UnauthorizedError } from '../utils/errors';
+import { HttpError } from '../utils/errors';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'secret-key-123';
 const ACCESS_TOKEN_EXPIRY = '15m';
@@ -56,7 +56,7 @@ export async function rotateRefreshToken(
       .for('update');
 
     if (!existing || existing.expiresAt < new Date()) {
-      throw new UnauthorizedError('Invalid or expired refresh token');
+      throw new HttpError(401, 'Invalid or expired refresh token');
     }
 
     const { plain, hash } = generateRefreshToken();

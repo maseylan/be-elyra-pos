@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { HttpError } from '../utils/errors';
 import * as sessionService from '../services/session.service';
 
 vi.mock('../db/with-tenant-schema', () => ({
@@ -33,7 +34,7 @@ describe('Session Service Tests', () => {
         cashierName: 'Kasir Test',
         startingCash: 100000,
       })
-    ).rejects.toThrow(sessionService.SessionConflictError);
+    ).rejects.toThrow(HttpError);
   });
 
   it('should calculate expected cash and difference on closeSession', async () => {

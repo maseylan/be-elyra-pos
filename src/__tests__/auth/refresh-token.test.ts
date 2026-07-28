@@ -6,7 +6,7 @@ import {
   verifyAccessToken,
   rotateRefreshToken,
 } from '../../services/token.service';
-import { UnauthorizedError } from '../../utils/errors';
+import { HttpError } from '../../utils/errors';
 import { createMockDb, mockTxSelect } from '../helpers/mocks';
 
 describe('Refresh token flow (per identitas)', () => {
@@ -111,7 +111,7 @@ describe('Refresh token flow (per identitas)', () => {
 
       await expect(
         rotateRefreshToken(expiredPlain, { tokenHash: 'hash' }, mockDb, (e: any) => ({ sessionType: 'tenant-operational' as const, role: 'cashier' as const, userId: e.userId, tenantId: 't' })),
-      ).rejects.toThrow(UnauthorizedError);
+      ).rejects.toThrow(HttpError);
     });
 
     it('login baru invalidate refresh token sebelumnya (single device)', async () => {
@@ -123,7 +123,7 @@ describe('Refresh token flow (per identitas)', () => {
 
       await expect(
         rotateRefreshToken(oldPlain, { tokenHash: 'hash' }, mockDb, (e: any) => ({ sessionType: 'tenant-operational' as const, role: 'cashier' as const, userId: 'u', tenantId: 't' })),
-      ).rejects.toThrow(UnauthorizedError);
+      ).rejects.toThrow(HttpError);
     });
 
     it('concurrent refresh dengan token sama — hanya satu yang sukses', async () => {
@@ -155,7 +155,7 @@ describe('Refresh token flow (per identitas)', () => {
       const result2 = rotateRefreshToken(plain, { tokenHash: 'hash' }, mockDb2, buildPayload);
 
       await expect(result1).resolves.toBeTruthy();
-      await expect(result2).rejects.toThrow(UnauthorizedError);
+      await expect(result2).rejects.toThrow(HttpError);
     });
   });
 });

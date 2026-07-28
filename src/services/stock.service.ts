@@ -2,10 +2,7 @@ import { withTenantSchema } from '../db/with-tenant-schema';
 import * as schema from '../db/tenant_schema';
 import { eq, and, sql, desc, inArray, lte, gt, gte, ne } from 'drizzle-orm';
 import crypto from 'crypto';
-
-export class StockError extends Error {
-  constructor(message: string) { super(message); this.name = 'StockError'; }
-}
+import { HttpError } from '../utils/errors';
 
 export async function listStockMovements(filters: {
   outletId?: string;
@@ -104,8 +101,8 @@ export async function adjustStock(params: {
       .from(schema.products)
       .where(eq(schema.products.id, params.productId));
 
-    if (!product) throw new StockError('Product not found');
-    if (product.type !== 'STOCK') throw new StockError('Product is not a stock-tracked item');
+    if (!product) throw new HttpError(400,'Product not found');
+    if (product.type !== 'STOCK') throw new HttpError(400,'Product is not a stock-tracked item');
 
     const outletProductConditions = [
       eq(schema.outletProducts.outletId, params.outletId),
@@ -122,7 +119,7 @@ export async function adjustStock(params: {
       .from(schema.outletProducts)
       .where(and(...outletProductConditions));
 
-    if (!outletProduct) throw new StockError('Product/variant is not available at this outlet');
+    if (!outletProduct) throw new HttpError(400,'Product/variant is not available at this outlet');
 
     let quantityChange: number;
     switch (params.type) {
@@ -138,12 +135,12 @@ export async function adjustStock(params: {
         quantityChange = params.quantity;
         break;
       default:
-        throw new StockError('Invalid movement type');
+        throw new HttpError(400,'Invalid movement type');
     }
 
     const newStock = outletProduct.stock + quantityChange;
     if (newStock < 0 && !product.allowNegativeStock) {
-      throw new StockError('Insufficient stock. Cannot go below 0.');
+      throw new HttpError(400,'Insufficient stock. Cannot go below 0.');
     }
 
     await tx

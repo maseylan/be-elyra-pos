@@ -2,8 +2,7 @@ import { withTenantSchema } from '../db/with-tenant-schema';
 import * as schema from '../db/tenant_schema';
 import { eq, and, sql } from 'drizzle-orm';
 import crypto from 'crypto';
-
-export class OutletNotFoundError extends Error {}
+import { HttpError } from '../utils/errors';
 
 interface CreateOutletInput {
   name: string;
@@ -62,7 +61,7 @@ export async function getOutletById(id: string) {
     const results = await tx.select().from(schema.outlets).where(eq(schema.outlets.id, id));
     return results[0];
   });
-  if (!outlet) throw new OutletNotFoundError(`Outlet ${id} not found`);
+  if (!outlet) throw new HttpError(404, `Outlet ${id} not found`);
   return outlet;
 }
 
@@ -84,7 +83,7 @@ export async function updateOutlet(id: string, input: UpdateOutletInput) {
       .where(eq(schema.outlets.id, id))
       .returning();
   });
-  if (updated.length === 0) throw new OutletNotFoundError(`Outlet ${id} not found`);
+  if (updated.length === 0) throw new HttpError(404, `Outlet ${id} not found`);
   return updated[0];
 }
 
@@ -96,7 +95,7 @@ export async function deactivateOutlet(id: string) {
       .where(eq(schema.outlets.id, id))
       .returning();
   });
-  if (updated.length === 0) throw new OutletNotFoundError(`Outlet ${id} not found`);
+  if (updated.length === 0) throw new HttpError(404, `Outlet ${id} not found`);
   return updated[0];
 }
 

@@ -10,7 +10,7 @@ import { listCustomers, getCustomer, adjustCustomerPoints, createCustomer, enrol
 import { listPromotions, getPromotion, createPromotion, updatePromotion, deletePromotion, getActivePromotions, updatePromotionOutlets } from './controllers/promotion.controller';
 import { listFloorPlans, getFloorPlan, createFloorPlan, updateFloorPlan, deleteFloorPlan } from './controllers/floor-plan.controller';
 import { listTables, createTable, updateTable, deleteTable, updateTableStatus, bulkUpdatePositions } from './controllers/table.controller';
-import { requireAuth, requireRole, authorizeTenantAccess, requireSuperadmin, requireLoyaltyAccess } from './middlewares/auth.middleware';
+import { requireRole, authorizeTenantAccess, requireLoyaltyAccess } from './middlewares/auth.middleware';
 import { requireSessionType } from './middlewares/require-session-type.middleware';
 import {
   listPrograms, getProgram, createProgram, updateProgram, deleteProgram,
@@ -31,118 +31,119 @@ const apiRouter = Router();
 
 // All routes in this router require tenant-operational session type
 apiRouter.use(requireSessionType('tenant-operational'));
+apiRouter.use(authorizeTenantAccess);
 
 const requireAdminOrOwner = requireRole(['admin', 'owner']);
 
 // Protected Tenant Admin/Owner/Cashier Routes
-apiRouter.get('/products', requireAuth, authorizeTenantAccess, resolveOutletContext, getProducts);
-apiRouter.get('/products/low-stock', requireAuth, authorizeTenantAccess, resolveOutletContext, getLowStockProducts);
-apiRouter.get('/products/:id', requireAuth, authorizeTenantAccess, resolveOutletContext, getProductById);
-apiRouter.post('/products', requireAuth, authorizeTenantAccess, requireAdminOrOwner, createProduct);
-apiRouter.put('/products/:id', requireAuth, authorizeTenantAccess, requireAdminOrOwner, updateProduct);
-apiRouter.delete('/products/:id', requireAuth, authorizeTenantAccess, requireAdminOrOwner, deleteProduct);
+apiRouter.get('/products', resolveOutletContext, getProducts);
+apiRouter.get('/products/low-stock', resolveOutletContext, getLowStockProducts);
+apiRouter.get('/products/:id', resolveOutletContext, getProductById);
+apiRouter.post('/products', requireAdminOrOwner, createProduct);
+apiRouter.put('/products/:id', requireAdminOrOwner, updateProduct);
+apiRouter.delete('/products/:id', requireAdminOrOwner, deleteProduct);
 
 // Product Variant Routes
-apiRouter.post('/products/:productId/variants', requireAuth, authorizeTenantAccess, requireAdminOrOwner, createVariant);
-apiRouter.get('/products/:productId/variants', requireAuth, authorizeTenantAccess, resolveOutletContext, getVariants);
-apiRouter.patch('/variants/:variantId', requireAuth, authorizeTenantAccess, requireAdminOrOwner, updateVariant);
-apiRouter.delete('/variants/:variantId', requireAuth, authorizeTenantAccess, requireAdminOrOwner, deleteVariant);
-apiRouter.put('/outlets/:outletId/variants/:variantId', requireAuth, authorizeTenantAccess, updateOutletVariant);
+apiRouter.post('/products/:productId/variants', requireAdminOrOwner, createVariant);
+apiRouter.get('/products/:productId/variants', resolveOutletContext, getVariants);
+apiRouter.patch('/variants/:variantId', requireAdminOrOwner, updateVariant);
+apiRouter.delete('/variants/:variantId', requireAdminOrOwner, deleteVariant);
+apiRouter.put('/outlets/:outletId/variants/:variantId', updateOutletVariant);
 
 // Modifier Group & Item Routes
-apiRouter.post('/products/:productId/modifier-groups', requireAuth, authorizeTenantAccess, requireAdminOrOwner, createModifierGroup);
-apiRouter.get('/products/:productId/modifier-groups', requireAuth, authorizeTenantAccess, resolveOutletContext, getModifierGroups);
-apiRouter.post('/modifier-groups/:groupId/modifiers', requireAuth, authorizeTenantAccess, requireAdminOrOwner, createModifier);
-apiRouter.patch('/modifier-groups/:groupId', requireAuth, authorizeTenantAccess, requireAdminOrOwner, updateModifierGroup);
-apiRouter.patch('/modifiers/:modifierId', requireAuth, authorizeTenantAccess, requireAdminOrOwner, updateModifier);
-apiRouter.delete('/modifiers/:modifierId', requireAuth, authorizeTenantAccess, requireAdminOrOwner, deleteModifier);
-apiRouter.put('/outlets/:outletId/modifiers/:modifierId', requireAuth, authorizeTenantAccess, updateOutletModifier);
+apiRouter.post('/products/:productId/modifier-groups', requireAdminOrOwner, createModifierGroup);
+apiRouter.get('/products/:productId/modifier-groups', resolveOutletContext, getModifierGroups);
+apiRouter.post('/modifier-groups/:groupId/modifiers', requireAdminOrOwner, createModifier);
+apiRouter.patch('/modifier-groups/:groupId', requireAdminOrOwner, updateModifierGroup);
+apiRouter.patch('/modifiers/:modifierId', requireAdminOrOwner, updateModifier);
+apiRouter.delete('/modifiers/:modifierId', requireAdminOrOwner, deleteModifier);
+apiRouter.put('/outlets/:outletId/modifiers/:modifierId', updateOutletModifier);
 
 // Add-on Routes (supporting both /add-ons and /addons endpoints)
-apiRouter.post('/add-ons', requireAuth, authorizeTenantAccess, requireAdminOrOwner, createAddOn);
-apiRouter.post('/addons', requireAuth, authorizeTenantAccess, requireAdminOrOwner, createAddOn);
+apiRouter.post('/add-ons', requireAdminOrOwner, createAddOn);
+apiRouter.post('/addons', requireAdminOrOwner, createAddOn);
 
-apiRouter.get('/add-ons', requireAuth, authorizeTenantAccess, resolveOutletContext, getAddOns);
-apiRouter.get('/addons', requireAuth, authorizeTenantAccess, resolveOutletContext, getAddOns);
+apiRouter.get('/add-ons', resolveOutletContext, getAddOns);
+apiRouter.get('/addons', resolveOutletContext, getAddOns);
 
-apiRouter.post('/products/:productId/add-ons', requireAuth, authorizeTenantAccess, requireAdminOrOwner, attachAddOn);
-apiRouter.post('/products/:productId/addons', requireAuth, authorizeTenantAccess, requireAdminOrOwner, attachAddOn);
+apiRouter.post('/products/:productId/add-ons', requireAdminOrOwner, attachAddOn);
+apiRouter.post('/products/:productId/addons', requireAdminOrOwner, attachAddOn);
 
-apiRouter.delete('/products/:productId/add-ons/:addOnId', requireAuth, authorizeTenantAccess, requireAdminOrOwner, detachAddOn);
-apiRouter.delete('/products/:productId/addons/:addOnId', requireAuth, authorizeTenantAccess, requireAdminOrOwner, detachAddOn);
+apiRouter.delete('/products/:productId/add-ons/:addOnId', requireAdminOrOwner, detachAddOn);
+apiRouter.delete('/products/:productId/addons/:addOnId', requireAdminOrOwner, detachAddOn);
 
-apiRouter.put('/outlets/:outletId/add-ons/:addOnId', requireAuth, authorizeTenantAccess, updateOutletAddOn);
-apiRouter.put('/outlets/:outletId/addons/:addOnId', requireAuth, authorizeTenantAccess, updateOutletAddOn);
+apiRouter.put('/outlets/:outletId/add-ons/:addOnId', updateOutletAddOn);
+apiRouter.put('/outlets/:outletId/addons/:addOnId', updateOutletAddOn);
 
 
 // Stock routes
-apiRouter.get('/stock-movements', requireAuth, authorizeTenantAccess, resolveOutletContext, getStockMovements);
-apiRouter.post('/stock/adjust', requireAuth, authorizeTenantAccess, requireAdminOrOwner, resolveOutletContext, adjustStock);
+apiRouter.get('/stock-movements', resolveOutletContext, getStockMovements);
+apiRouter.post('/stock/adjust', requireAdminOrOwner, resolveOutletContext, adjustStock);
 
 // Category routes
-apiRouter.get('/categories', requireAuth, authorizeTenantAccess, getCategories);
-apiRouter.get('/categories/:id', requireAuth, authorizeTenantAccess, getCategoryById);
-apiRouter.post('/categories', requireAuth, authorizeTenantAccess, requireAdminOrOwner, createCategory);
-apiRouter.put('/categories/:id', requireAuth, authorizeTenantAccess, requireAdminOrOwner, updateCategory);
-apiRouter.delete('/categories/:id', requireAuth, authorizeTenantAccess, requireAdminOrOwner, deleteCategory);
+apiRouter.get('/categories', getCategories);
+apiRouter.get('/categories/:id', getCategoryById);
+apiRouter.post('/categories', requireAdminOrOwner, createCategory);
+apiRouter.put('/categories/:id', requireAdminOrOwner, updateCategory);
+apiRouter.delete('/categories/:id', requireAdminOrOwner, deleteCategory);
 
 // Protected Tenant Admin/Owner Routes
-apiRouter.get('/accounts', requireAuth, authorizeTenantAccess, requireAdminOrOwner, getAccounts);
-apiRouter.post('/accounts', requireAuth, authorizeTenantAccess, requireAdminOrOwner, addAccount);
-apiRouter.delete('/accounts/:accountId', requireAuth, authorizeTenantAccess, requireAdminOrOwner, removeAccount);
+apiRouter.get('/accounts', requireAdminOrOwner, getAccounts);
+apiRouter.post('/accounts', requireAdminOrOwner, addAccount);
+apiRouter.delete('/accounts/:accountId', requireAdminOrOwner, removeAccount);
 
 // Settings routes
-apiRouter.get('/settings', requireAuth, authorizeTenantAccess, requireAdminOrOwner, getSettings);
-apiRouter.put('/settings', requireAuth, authorizeTenantAccess, requireAdminOrOwner, updateSettings);
+apiRouter.get('/settings', requireAdminOrOwner, getSettings);
+apiRouter.put('/settings', requireAdminOrOwner, updateSettings);
 
 // Outlet settings routes
-apiRouter.get('/settings/outlet/:outletId', requireAuth, authorizeTenantAccess, getOutletSettings);
-apiRouter.put('/settings/outlet/:outletId', requireAuth, authorizeTenantAccess, requireAdminOrOwner, updateOutletSettings);
+apiRouter.get('/settings/outlet/:outletId', getOutletSettings);
+apiRouter.put('/settings/outlet/:outletId', requireAdminOrOwner, updateOutletSettings);
 
 // Shift Register Session routes
 const requireSupervisorOrAdmin = requireRole(['supervisor', 'admin', 'owner']);
 
-apiRouter.get('/sessions/active', requireAuth, authorizeTenantAccess, resolveOutletContext, getActiveSession);
-apiRouter.post('/sessions/open', requireAuth, authorizeTenantAccess, resolveOutletContext, openSession);
-apiRouter.post('/sessions/close', requireAuth, authorizeTenantAccess, resolveOutletContext, closeSession);
-apiRouter.post('/sessions/:id/force-close', requireAuth, authorizeTenantAccess, requireSupervisorOrAdmin, forceCloseSession);
-apiRouter.get('/sessions', requireAuth, authorizeTenantAccess, resolveOutletContext, requireSupervisorOrAdmin, getSessionHistory);
+apiRouter.get('/sessions/active', resolveOutletContext, getActiveSession);
+apiRouter.post('/sessions/open', resolveOutletContext, openSession);
+apiRouter.post('/sessions/close', resolveOutletContext, closeSession);
+apiRouter.post('/sessions/:id/force-close', requireSupervisorOrAdmin, forceCloseSession);
+apiRouter.get('/sessions', resolveOutletContext, requireSupervisorOrAdmin, getSessionHistory);
 
 // Order routes (outlet context required — resolved via X-Outlet-Id header)
-apiRouter.post('/orders', requireAuth, authorizeTenantAccess, resolveOutletContext, createOrder);
-apiRouter.get('/orders/summary', requireAuth, authorizeTenantAccess, resolveOutletContext, getOrderSummary);
-apiRouter.get('/orders', requireAuth, authorizeTenantAccess, resolveOutletContext, listOrders);
-apiRouter.patch('/orders/:id/refund', requireAuth, authorizeTenantAccess, requireAdminOrOwner, refundOrder);
-apiRouter.get('/orders/:id', requireAuth, authorizeTenantAccess, resolveOutletContext, getOrder);
+apiRouter.post('/orders', resolveOutletContext, createOrder);
+apiRouter.get('/orders/summary', resolveOutletContext, getOrderSummary);
+apiRouter.get('/orders', resolveOutletContext, listOrders);
+apiRouter.patch('/orders/:id/refund', requireAdminOrOwner, refundOrder);
+apiRouter.get('/orders/:id', resolveOutletContext, getOrder);
 
 // Outlet routes
-apiRouter.get('/outlets', requireAuth, authorizeTenantAccess, listOutlets);
-apiRouter.post('/outlets', requireAuth, authorizeTenantAccess, requireAdminOrOwner, createOutlet);
-apiRouter.get('/outlets/:id', requireAuth, authorizeTenantAccess, getOutlet);
-apiRouter.put('/outlets/:id', requireAuth, authorizeTenantAccess, requireAdminOrOwner, updateOutlet);
-apiRouter.delete('/outlets/:id', requireAuth, authorizeTenantAccess, requireAdminOrOwner, deactivateOutlet);
+apiRouter.get('/outlets', listOutlets);
+apiRouter.post('/outlets', requireAdminOrOwner, createOutlet);
+apiRouter.get('/outlets/:id', getOutlet);
+apiRouter.put('/outlets/:id', requireAdminOrOwner, updateOutlet);
+apiRouter.delete('/outlets/:id', requireAdminOrOwner, deactivateOutlet);
 
 // User-Outlet Assignment & Info
-apiRouter.get('/users/me/outlets', requireAuth, authorizeTenantAccess, getMyOutlets);
-apiRouter.post('/users/:id/outlets', requireAuth, authorizeTenantAccess, requireAdminOrOwner, assignUserOutlets);
+apiRouter.get('/users/me/outlets', getMyOutlets);
+apiRouter.post('/users/:id/outlets', requireAdminOrOwner, assignUserOutlets);
 
 // Floor Plan routes (outlet context required)
-apiRouter.get('/floor-plans', requireAuth, authorizeTenantAccess, resolveOutletContext, listFloorPlans);
-apiRouter.get('/floor-plans/:id', requireAuth, authorizeTenantAccess, resolveOutletContext, getFloorPlan);
-apiRouter.post('/floor-plans', requireAuth, authorizeTenantAccess, requireAdminOrOwner, resolveOutletContext, createFloorPlan);
-apiRouter.put('/floor-plans/:id', requireAuth, authorizeTenantAccess, requireAdminOrOwner, resolveOutletContext, updateFloorPlan);
-apiRouter.delete('/floor-plans/:id', requireAuth, authorizeTenantAccess, requireAdminOrOwner, resolveOutletContext, deleteFloorPlan);
+apiRouter.get('/floor-plans', resolveOutletContext, listFloorPlans);
+apiRouter.get('/floor-plans/:id', resolveOutletContext, getFloorPlan);
+apiRouter.post('/floor-plans', requireAdminOrOwner, resolveOutletContext, createFloorPlan);
+apiRouter.put('/floor-plans/:id', requireAdminOrOwner, resolveOutletContext, updateFloorPlan);
+apiRouter.delete('/floor-plans/:id', requireAdminOrOwner, resolveOutletContext, deleteFloorPlan);
 
 // Table routes
-apiRouter.get('/tables', requireAuth, authorizeTenantAccess, resolveOutletContext, listTables);
-apiRouter.post('/tables', requireAuth, authorizeTenantAccess, requireAdminOrOwner, resolveOutletContext, createTable);
-apiRouter.put('/tables/:id', requireAuth, authorizeTenantAccess, requireAdminOrOwner, resolveOutletContext, updateTable);
-apiRouter.delete('/tables/:id', requireAuth, authorizeTenantAccess, requireAdminOrOwner, resolveOutletContext, deleteTable);
-apiRouter.patch('/tables/:id/status', requireAuth, authorizeTenantAccess, resolveOutletContext, updateTableStatus);
-apiRouter.post('/tables/bulk-positions', requireAuth, authorizeTenantAccess, requireAdminOrOwner, resolveOutletContext, bulkUpdatePositions);
+apiRouter.get('/tables', resolveOutletContext, listTables);
+apiRouter.post('/tables', requireAdminOrOwner, resolveOutletContext, createTable);
+apiRouter.put('/tables/:id', requireAdminOrOwner, resolveOutletContext, updateTable);
+apiRouter.delete('/tables/:id', requireAdminOrOwner, resolveOutletContext, deleteTable);
+apiRouter.patch('/tables/:id/status', resolveOutletContext, updateTableStatus);
+apiRouter.post('/tables/bulk-positions', requireAdminOrOwner, resolveOutletContext, bulkUpdatePositions);
 
 // Loyalty routes — middleware applied at prefix level
-const loyaltyMW = [requireAuth, authorizeTenantAccess, requireAdminOrOwner, requireLoyaltyAccess];
+const loyaltyMW = [requireAdminOrOwner, requireLoyaltyAccess];
 apiRouter.use('/loyalty-programs', ...loyaltyMW);
 apiRouter.use('/loyalty-coupons', ...loyaltyMW);
 apiRouter.use('/loyalty-members', ...loyaltyMW);
@@ -158,7 +159,7 @@ apiRouter.get('/loyalty-programs/:id/outlets', listProgramOutlets);
 apiRouter.post('/loyalty-programs/:id/outlets', assignOutlet);
 apiRouter.delete('/loyalty-programs/:id/outlets/:outletId', removeOutlet);
 
-apiRouter.get('/loyalty-programs/by-outlet/:outletId', requireAuth, authorizeTenantAccess, requireLoyaltyAccess, getActiveProgramByOutlet);
+apiRouter.get('/loyalty-programs/by-outlet/:outletId', requireLoyaltyAccess, getActiveProgramByOutlet);
 
 apiRouter.get('/loyalty-programs/:programId/rewards', listRewards);
 apiRouter.post('/loyalty-programs/:programId/rewards', createReward);
@@ -169,30 +170,30 @@ apiRouter.get('/loyalty-coupons', listCoupons);
 apiRouter.post('/loyalty-coupons', createCoupon);
 apiRouter.put('/loyalty-coupons/:id', updateCoupon);
 apiRouter.delete('/loyalty-coupons/:id', deleteCoupon);
-apiRouter.post('/loyalty-coupons/validate', requireAuth, authorizeTenantAccess, requireLoyaltyAccess, validateCouponHandler);
+apiRouter.post('/loyalty-coupons/validate', requireLoyaltyAccess, validateCouponHandler);
 
 apiRouter.post('/loyalty-members/lookup', lookupMember);
 apiRouter.get('/loyalty-members', listMembers);
 apiRouter.get('/loyalty-members/:id', getMemberDetail);
 apiRouter.get('/loyalty-members/:id/redeemable-rewards', getRedeemableRewards);
 
-apiRouter.post('/orders/:orderId/earn-points', requireAuth, authorizeTenantAccess, requireLoyaltyAccess, resolveOutletContext, earnPointsHandler);
+apiRouter.post('/orders/:orderId/earn-points', requireLoyaltyAccess, resolveOutletContext, earnPointsHandler);
 
 // Customer routes
-apiRouter.post('/customers', requireAuth, authorizeTenantAccess, requireAdminOrOwner, createCustomer);
-apiRouter.get('/customers', requireAuth, authorizeTenantAccess, requireAdminOrOwner, listCustomers);
-apiRouter.get('/customers/:id', requireAuth, authorizeTenantAccess, requireAdminOrOwner, getCustomer);
-apiRouter.post('/customers/:id/points/adjust', requireAuth, authorizeTenantAccess, requireAdminOrOwner, resolveOutletContext, adjustCustomerPoints);
-apiRouter.post('/customers/:customerId/programs', requireAuth, authorizeTenantAccess, requireAdminOrOwner, enrollCustomer);
+apiRouter.post('/customers', requireAdminOrOwner, createCustomer);
+apiRouter.get('/customers', requireAdminOrOwner, listCustomers);
+apiRouter.get('/customers/:id', requireAdminOrOwner, getCustomer);
+apiRouter.post('/customers/:id/points/adjust', requireAdminOrOwner, resolveOutletContext, adjustCustomerPoints);
+apiRouter.post('/customers/:customerId/programs', requireAdminOrOwner, enrollCustomer);
 
 // Promotion routes
-apiRouter.get('/promotions/active', requireAuth, authorizeTenantAccess, resolveOutletContext, getActivePromotions);
-apiRouter.post('/promotions', requireAuth, authorizeTenantAccess, requireAdminOrOwner, createPromotion);
-apiRouter.get('/promotions', requireAuth, authorizeTenantAccess, requireAdminOrOwner, listPromotions);
-apiRouter.put('/promotions/:id', requireAuth, authorizeTenantAccess, requireAdminOrOwner, updatePromotion);
-apiRouter.delete('/promotions/:id', requireAuth, authorizeTenantAccess, requireAdminOrOwner, deletePromotion);
-apiRouter.put('/promotions/:id/outlets', requireAuth, authorizeTenantAccess, requireAdminOrOwner, updatePromotionOutlets);
-apiRouter.get('/promotions/:id', requireAuth, authorizeTenantAccess, requireAdminOrOwner, getPromotion);
+apiRouter.get('/promotions/active', resolveOutletContext, getActivePromotions);
+apiRouter.post('/promotions', requireAdminOrOwner, createPromotion);
+apiRouter.get('/promotions', requireAdminOrOwner, listPromotions);
+apiRouter.put('/promotions/:id', requireAdminOrOwner, updatePromotion);
+apiRouter.delete('/promotions/:id', requireAdminOrOwner, deletePromotion);
+apiRouter.put('/promotions/:id/outlets', requireAdminOrOwner, updatePromotionOutlets);
+apiRouter.get('/promotions/:id', requireAdminOrOwner, getPromotion);
 
 // 404 catch-all for unmatched API routes
 apiRouter.use((req, res) => {
