@@ -62,102 +62,102 @@ const prodData: { cat: number; name: string; cost: number; sell: number }[] = [
   ...[
     ['Lumpia Semarang',12,18],['Spring Roll Udang',10,15],['Siomay Bandung',8,12],
     ['Batagor',10,15],['Cireng Isi Ayam',8,12],
-  ].map(([n,c,s]) => ({cat:0,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:0,name:n as string,cost:c as number,sell:s as number})),
   // Makanan Utama
   ...[
     ['Nasi Goreng Spesial',20,35],['Nasi Goreng Seafood',25,40],['Nasi Goreng Kampung',15,28],
     ['Nasi Goreng Merah',18,30],['Nasi Goreng Hitam',20,32],
-  ].map(([n,c,s]) => ({cat:1,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:1,name:n as string,cost:c as number,sell:s as number})),
   // Nasi
   ...[
     ['Nasi Putih',3,5],['Nasi Merah',4,7],['Nasi Gurih',5,8],
     ['Nasi Liwet Solo',20,35],['Nasi Megono',15,25],
-  ].map(([n,c,s]) => ({cat:2,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:2,name:n as string,cost:c as number,sell:s as number})),
   // Mie & Pasta
   ...[
     ['Mie Ayam Original',12,20],['Mie Ayam Bakso',15,25],['Mie Ayam Ceker',15,25],
     ['Mie Ayam Komplit',18,30],['Mie Goreng Jawa',12,20],
-  ].map(([n,c,s]) => ({cat:3,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:3,name:n as string,cost:c as number,sell:s as number})),
   // Ayam
   ...[
     ['Ayam Goreng Biasa',15,25],['Ayam Goreng Kremes',18,28],['Ayam Bakar Taliwang',18,30],
     ['Ayam Bakar Madu',20,32],['Ayam Panggang',20,35],
-  ].map(([n,c,s]) => ({cat:4,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:4,name:n as string,cost:c as number,sell:s as number})),
   // Ikan
   ...[
     ['Ikan Bakar Tepi',25,40],['Ikan Goreng Tepi',20,35],['Ikan Nila Bakar',22,38],
     ['Gurame Goreng',30,50],['Gurame Bakar',35,55],
-  ].map(([n,c,s]) => ({cat:5,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:5,name:n as string,cost:c as number,sell:s as number})),
   // Seafood
   ...[
     ['Udang Goreng Tepung',25,40],['Udang Bakar Madu',30,50],['Cumi Goreng Tepung',22,38],
     ['Cumi Bakar Isi',28,45],['Cumi Rica-Rica',25,42],
-  ].map(([n,c,s]) => ({cat:6,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:6,name:n as string,cost:c as number,sell:s as number})),
   // Daging Sapi
   ...[
     ['Rendang Sapi',30,50],['Sapi Lada Hitam',28,45],['Sapi Teriyaki',25,42],
     ['Steak Sapi',45,75],['Rawon',20,35],
-  ].map(([n,c,s]) => ({cat:7,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:7,name:n as string,cost:c as number,sell:s as number})),
   // Sayuran
   ...[
     ['Capcay Kuah',15,25],['Capcay Seafood',22,35],['Kangkung Belacan',12,20],
     ['Kangkung Cah Bawang',10,18],['Sayur Asem',10,15],
-  ].map(([n,c,s]) => ({cat:8,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:8,name:n as string,cost:c as number,sell:s as number})),
   // Sup
   ...[
     ['Sop Ayam',12,20],['Sop Iga Sapi',25,42],['Sop Sayuran',10,18],
     ['Sop Kambing',25,42],['Sop Buntut',30,50],
-  ].map(([n,c,s]) => ({cat:9,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:9,name:n as string,cost:c as number,sell:s as number})),
   // Sate
   ...[
     ['Sate Ayam',18,30],['Sate Kambing',25,42],['Sate Sapi',25,40],
     ['Sate Lilit Bali',22,35],['Sate Padang',20,35],
-  ].map(([n,c,s]) => ({cat:10,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:10,name:n as string,cost:c as number,sell:s as number})),
   // Bakar & Panggang
   ...[
     ['Ayam Bakar Taliwang',22,38],['Ayam Bakar Padang',20,35],['Iga Bakar Madu',35,55],
     ['Gurame Bakar Pesmol',30,50],['Udang Bakar Madu',28,45],
-  ].map(([n,c,s]) => ({cat:11,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:11,name:n as string,cost:c as number,sell:s as number})),
   // Cemilan
   ...[
     ['Keripik Singkong Balado',8,12],['Keripik Pisang Manis',8,12],['Makaroni Keju Panggang',10,15],
     ['Kentang Goreng Keju',10,18],['Onion Ring',10,18],
-  ].map(([n,c,s]) => ({cat:12,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:12,name:n as string,cost:c as number,sell:s as number})),
   // Gorengan
   ...[
     ['Tahu Goreng',5,8],['Tempe Goreng',4,7],['Pisang Goreng',6,10],
     ['Singkong Goreng',6,10],['Bakwan Sayur',5,8],
-  ].map(([n,c,s]) => ({cat:13,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:13,name:n as string,cost:c as number,sell:s as number})),
   // Roti & Bakery
   ...[
     ['Roti Bakar Coklat',10,18],['Roti Bakar Keju',10,18],['Roti Bakar Pisang Keju',12,20],
     ['Sandwich Ayam Mayo',15,25],['Sandwich Tuna',15,25],
-  ].map(([n,c,s]) => ({cat:14,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:14,name:n as string,cost:c as number,sell:s as number})),
   // Dessert
   ...[
     ['Es Krim Vanilla',8,15],['Es Krim Coklat',8,15],['Es Krim Stroberi',8,15],
     ['Pudding Coklat Vla',10,18],['Pudding Buah Segar',12,20],
-  ].map(([n,c,s]) => ({cat:15,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:15,name:n as string,cost:c as number,sell:s as number})),
   // Minuman Panas
   ...[
     ['Teh Tawar Hangat',3,5],['Teh Manis Hangat',4,7],['Teh Jahe Hangat',6,10],
     ['Wedang Ronde',10,18],['Wedang Uwuh',12,20],
-  ].map(([n,c,s]) => ({cat:16,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:16,name:n as string,cost:c as number,sell:s as number})),
   // Kopi
   ...[
     ['Kopi Hitam',5,10],['Kopi Susu',8,15],['Kopi Gula Aren',12,20],
     ['Cappuccino',15,25],['Cafe Latte',18,28],
-  ].map(([n,c,s]) => ({cat:17,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:17,name:n as string,cost:c as number,sell:s as number})),
   // Minuman Dingin
   ...[
     ['Es Teh Manis',4,7],['Es Teh Tawar',3,5],['Es Jeruk',6,10],
     ['Es Lemon Tea',8,12],['Es Susu Coklat',7,12],
-  ].map(([n,c,s]) => ({cat:18,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:18,name:n as string,cost:c as number,sell:s as number})),
   // Jus & Smoothie
   ...[
     ['Jus Alpukat',12,20],['Jus Mangga',10,18],['Jus Jeruk Segar',10,18],
     ['Jus Jambu Merah',10,18],['Jus Stroberi',12,20],
-  ].map(([n,c,s]) => ({cat:19,name:n,cost:c as number,sell:s as number})),
+  ].map(([n,c,s]) => ({cat:19,name:n as string,cost:c as number,sell:s as number})),
 ];
 
 const addOnNames = [
@@ -658,7 +658,7 @@ async function main() {
         sub += price * qty;
       }
       // outlet code
-      const outletIdx = outletIds.indexOf(session.outletId);
+      const outletIdx = outletIds.indexOf(session.outletId as (typeof outletIds)[number]);
       const code = outletData[outletIdx]?.code ?? 'OUT';
       const dateStr = seqResetBase(session.openedAt);
       const key = `${code}-${dateStr}`;

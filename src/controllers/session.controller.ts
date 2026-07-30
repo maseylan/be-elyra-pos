@@ -41,7 +41,7 @@ export const openSession = async (req: Request, res: Response, next: NextFunctio
   try {
     const parseResult = openSessionSchema.safeParse(req.body);
     if (!parseResult.success) {
-      return res.status(400).json({ error: 'Data tidak valid', details: parseResult.error.errors });
+      return res.status(400).json({ error: 'Data tidak valid', details: parseResult.error.issues });
     }
 
     const cashierId = req.auth?.userId || req.user?.userId || (req.user as any)?.id;
@@ -66,7 +66,7 @@ export const closeSession = async (req: Request, res: Response, next: NextFuncti
   try {
     const parseResult = closeSessionSchema.safeParse(req.body);
     if (!parseResult.success) {
-      return res.status(400).json({ error: 'Data tidak valid', details: parseResult.error.errors });
+      return res.status(400).json({ error: 'Data tidak valid', details: parseResult.error.issues });
     }
 
     const userId = (req as any).user?.id || (req as any).user?.userId;
@@ -87,10 +87,10 @@ export const closeSession = async (req: Request, res: Response, next: NextFuncti
 
 export const forceCloseSession = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const sessionId = req.params.id;
+    const sessionId = req.params.id as string;
     const parseResult = forceCloseSessionSchema.safeParse(req.body);
     if (!parseResult.success) {
-      return res.status(400).json({ error: 'Data tidak valid', details: parseResult.error.errors });
+      return res.status(400).json({ error: 'Data tidak valid', details: parseResult.error.issues });
     }
 
     const supervisorId = (req as any).user?.id || (req as any).user?.userId;
