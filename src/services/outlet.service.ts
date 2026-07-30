@@ -1,4 +1,4 @@
-import { withTenantSchema } from '../db/with-tenant-schema';
+import { withTenantDb } from '../db/with-tenant-db';
 import * as schema from '../db/tenant_schema';
 import { eq, and, sql } from 'drizzle-orm';
 import crypto from 'crypto';
@@ -14,14 +14,14 @@ interface CreateOutletInput {
 
 export async function createOutlet(input: CreateOutletInput) {
   const id = crypto.randomUUID();
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [outlet] = await tx.insert(schema.outlets).values({ id, ...input }).returning();
     return outlet;
   });
 }
 
 export async function listOutlets() {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const outletsList = await tx.select().from(schema.outlets).where(eq(schema.outlets.isActive, true));
 
     const [{ totalGlobalProducts }] = await tx
@@ -57,7 +57,7 @@ export async function listOutlets() {
 }
 
 export async function getOutletById(id: string) {
-  const outlet = await withTenantSchema(async (tx) => {
+  const outlet = await withTenantDb(async (tx) => {
     const results = await tx.select().from(schema.outlets).where(eq(schema.outlets.id, id));
     return results[0];
   });
@@ -77,7 +77,7 @@ interface UpdateOutletInput {
 }
 
 export async function updateOutlet(id: string, input: UpdateOutletInput) {
-  const updated = await withTenantSchema(async (tx) => {
+  const updated = await withTenantDb(async (tx) => {
     return tx.update(schema.outlets)
       .set({ ...input, updatedAt: new Date() })
       .where(eq(schema.outlets.id, id))
@@ -89,7 +89,7 @@ export async function updateOutlet(id: string, input: UpdateOutletInput) {
 
 
 export async function deactivateOutlet(id: string) {
-  const updated = await withTenantSchema(async (tx) => {
+  const updated = await withTenantDb(async (tx) => {
     return tx.update(schema.outlets)
       .set({ isActive: false, updatedAt: new Date() })
       .where(eq(schema.outlets.id, id))

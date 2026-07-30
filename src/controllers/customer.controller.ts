@@ -1,6 +1,8 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import * as customerService from '../services/customer.service';
+import { asyncHandler } from '../utils/asyncHandler';
+import { HttpError } from '../utils/errors';
 
 const listQuerySchema = z.object({
   search: z.string().optional(),
@@ -28,40 +30,30 @@ const enrollSchema = z.object({
   programId: z.string().uuid(),
 });
 
-export const listCustomers = async (req: Request, res: Response) => {
+export const listCustomers = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const query = listQuerySchema.safeParse(req.query);
   if (!query.success) {
     return res.status(400).json({ error: 'Invalid query', details: query.error.flatten() });
   }
 
-  try {
-    const result = await customerService.listCustomers(query.data);
-    res.json(result);
-  } catch (error: any) {
-    console.error('Failed to list customers', error);
-    res.status(500).json({ error: 'Failed to list customers', detail: error?.message });
-  }
-};
+  const result = await customerService.listCustomers(query.data);
+  res.json(result);
+});
 
-export const getCustomer = async (req: Request, res: Response) => {
+export const getCustomer = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const params = paramSchema.safeParse(req.params);
   if (!params.success) {
     return res.status(400).json({ error: 'Invalid customer id' });
   }
 
-  try {
-    const customer = await customerService.getCustomerById(params.data.id);
-    if (!customer) {
-      return res.status(404).json({ error: 'Customer not found' });
-    }
-    res.json(customer);
-  } catch (error: any) {
-    console.error('Failed to get customer', error);
-    res.status(500).json({ error: 'Failed to get customer', detail: error?.message });
+  const customer = await customerService.getCustomerById(params.data.id);
+  if (!customer) {
+    return res.status(404).json({ error: 'Customer not found' });
   }
-};
+  res.json(customer);
+});
 
-export const adjustCustomerPoints = async (req: Request, res: Response) => {
+export const adjustCustomerPoints = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const params = paramSchema.safeParse(req.params);
   if (!params.success) {
     return res.status(400).json({ error: 'Invalid customer id' });
@@ -88,15 +80,12 @@ export const adjustCustomerPoints = async (req: Request, res: Response) => {
     );
     res.json(result);
   } catch (error: any) {
-    console.error('Failed to adjust points', error);
-    if (error?.message?.includes('not found')) {
-      return res.status(404).json({ error: error.message });
-    }
-    res.status(500).json({ error: 'Failed to adjust points', detail: error?.message });
+    if (error?.message?.includes('not found')) throw new HttpError(404, error.message);
+    throw error;
   }
-};
+});
 
-export const enrollCustomer = async (req: Request, res: Response) => {
+export const enrollCustomer = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const params = paramSchema.safeParse(req.params);
   if (!params.success) {
     return res.status(400).json({ error: 'Invalid customer id' });
@@ -111,18 +100,13 @@ export const enrollCustomer = async (req: Request, res: Response) => {
     const enrollment = await customerService.enrollCustomerInProgram(params.data.id, body.data.programId);
     res.status(201).json(enrollment);
   } catch (error: any) {
-    if (error?.message?.includes('not found')) {
-      return res.status(404).json({ error: error.message });
-    }
-    if (error?.message?.includes('already enrolled')) {
-      return res.status(409).json({ error: error.message });
-    }
-    console.error('Failed to enroll customer', error);
-    res.status(500).json({ error: 'Failed to enroll customer', detail: error?.message });
+    if (error?.message?.includes('not found')) throw new HttpError(404, error.message);
+    if (error?.message?.includes('already enrolled')) throw new HttpError(409, error.message);
+    throw error;
   }
-};
+});
 
-export const createCustomer = async (req: Request, res: Response) => {
+export const createCustomer = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const body = createCustomerSchema.safeParse(req.body);
   if (!body.success) {
     return res.status(400).json({ error: 'Invalid payload', details: body.error.flatten() });
@@ -136,10 +120,7 @@ export const createCustomer = async (req: Request, res: Response) => {
     });
     res.status(201).json(customer);
   } catch (error: any) {
-    if (error?.message?.includes('already exists')) {
-      return res.status(409).json({ error: error.message });
-    }
-    console.error('Failed to create customer', error);
-    res.status(500).json({ error: 'Failed to create customer', detail: error?.message });
+    if (error?.message?.includes('already exists')) throw new HttpError(409, error.message);
+    throw error;
   }
-};
+});

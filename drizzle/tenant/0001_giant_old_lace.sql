@@ -1,1 +1,0 @@
-ALTER TABLE "outlets" ADD COLUMN "is_custom_config" boolean DEFAULT false NOT NULL;

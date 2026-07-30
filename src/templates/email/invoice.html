@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Invoice Pesanan</title>
+<style>
+table.items { width:100%; border-collapse:collapse; margin:16px 0 }
+table.items th { background:#f8faff; padding:10px 12px; font-size:13px; font-weight:600; color:#555; text-align:left; border-bottom:2px solid #1a73e8 }
+table.items td { padding:10px 12px; font-size:14px; color:#333; border-bottom:1px solid #eee }
+table.items tr:last-child td { border-bottom:none }
+</style>
+</head>
+<body style="margin:0;padding:0;background:#f4f4f4;font-family:Arial,Helvetica,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:40px 20px">
+<table width="560" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08)">
+<tr><td style="padding:24px 40px;background:#1a73e8;color:#fff">
+<table width="100%"><tr>
+<td><img src="https://elyrapos.my.id/logo-white.png" alt="Elyra POS" width="100"></td>
+<td align="right"><h2 style="margin:0;font-size:18px">INVOICE</h2><p style="margin:4px 0 0;font-size:13px;opacity:.8">{ORDER_NUMBER}</p></td>
+</tr></table>
+</td></tr>
+<tr><td style="padding:24px 40px">
+<table width="100%"><tr>
+<td><p style="font-size:13px;color:#888;margin:0 0 4px"><strong>Outlet</strong></p><p style="font-size:15px;color:#333;margin:0">{OUTLET_NAME}</p><p style="font-size:13px;color:#888;margin:4px 0 0">{OUTLET_ADDRESS}</p></td>
+<td align="right"><p style="font-size:13px;color:#888;margin:0 0 4px"><strong>Tanggal</strong></p><p style="font-size:15px;color:#333;margin:0">{DATE}</p></td>
+</tr></table>
+<hr style="border:none;border-top:1px solid #eee;margin:20px 0">
+<p style="font-size:14px;color:#333;margin:0 0 8px"><strong>Daftar Item</strong></p>
+<table class="items">
+<tr><th>Item</th><th align="center">Qty</th><th align="right">Harga</th><th align="right">Subtotal</th></tr>
+{ITEMS_ROWS}
+</table>
+<hr style="border:none;border-top:2px solid #333;margin:16px 0">
+<table width="100%">
+<tr><td><p style="font-size:14px;color:#666;margin:0">Subtotal</p></td><td align="right"><p style="font-size:14px;color:#333;margin:0">{SUBTOTAL}</p></td></tr>
+<tr><td><p style="font-size:14px;color:#666;margin:4px 0">Tax</p></td><td align="right"><p style="font-size:14px;color:#333;margin:4px 0">{TAX}</p></td></tr>
+<tr><td><p style="font-size:14px;color:#666;margin:4px 0">Diskon</p></td><td align="right"><p style="font-size:14px;color:#e74c3c;margin:4px 0">-{DISCOUNT}</p></td></tr>
+<tr><td style="padding-top:8px"><p style="font-size:18px;font-weight:700;color:#333;margin:0">Total</p></td><td align="right" style="padding-top:8px"><p style="font-size:18px;font-weight:700;color:#1a73e8;margin:0">{TOTAL}</p></td></tr>
+</table>
+<hr style="border:none;border-top:1px solid #eee;margin:20px 0">
+<table width="100%">
+<tr><td><p style="font-size:13px;color:#888;margin:0"><strong>Metode Bayar</strong></p><p style="font-size:15px;color:#333;margin:4px 0">{PAYMENT_METHOD}</p></td>
+<td align="right"><p style="font-size:13px;color:#888;margin:0"><strong>Dibayar</strong></p><p style="font-size:15px;color:#333;margin:4px 0">{AMOUNT_PAID}</p></td>
+<td align="right"><p style="font-size:13px;color:#888;margin:0"><strong>Kembali</strong></p><p style="font-size:15px;color:#333;margin:4px 0">{CHANGE}</p></td></tr>
+</table>
+</td></tr>
+<tr><td style="padding:24px 40px;background:#fafafa;border-top:1px solid #eee;text-align:center">
+<p style="font-size:14px;color:#333;margin:0 0 8px;font-weight:600">Terima kasih telah berbelanja!</p>
+<p style="font-size:12px;color:#aaa;margin:0">&copy; 2026 Elyra POS. All rights reserved.</p>
+</td></tr>
+</table>
+</td></tr></table>
+</body>
+</html>

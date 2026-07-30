@@ -35,7 +35,6 @@ export const tenantResolutionMiddleware = async (req: Request, res: Response, ne
   let tenantData: TenantContextData | null = null;
   const cacheKey = `tenant:resolve:${subdomain}`;
 
-  // Attempt Redis cache
   try {
     const cached = await redisClient.get(cacheKey);
     if (cached) {
@@ -46,6 +45,10 @@ export const tenantResolutionMiddleware = async (req: Request, res: Response, ne
   }
 
   if (tenantData) {
+    if (!tenantData.isActive) {
+      res.status(403).json({ error: 'Tenant has been deactivated.' });
+      return;
+    }
     if (tenantData.status === 'expired') {
       res.status(402).json({ error: 'Your subscription has ended. Please make payment to continue.' });
       return;
@@ -54,13 +57,13 @@ export const tenantResolutionMiddleware = async (req: Request, res: Response, ne
     return;
   }
 
-  // Cache miss — query DB
   try {
     const records = await dbPool.select({
       id: tenants.id,
       applicationStatus: tenants.applicationStatus,
       subscriptionType: tenants.subscriptionType,
-      subscriptionEnd: tenants.subscriptionEnd,
+      nextBillingCycle: tenants.nextBillingCycle,
+      isActive: tenants.isActive,
     }).from(tenants).where(eq(tenants.subdomain, subdomain));
 
     if (records.length === 0) {
@@ -70,31 +73,31 @@ export const tenantResolutionMiddleware = async (req: Request, res: Response, ne
 
     const record = records[0];
 
-    // Check expired
+    if (!record.isActive) {
+      res.status(403).json({ error: 'Tenant has been deactivated.' });
+      return;
+    }
+
     if (record.applicationStatus === 'expired') {
       res.status(402).json({ error: 'Your subscription has ended. Please make payment to continue.' });
       return;
     }
 
-    if (record.applicationStatus === 'provisioned' && record.subscriptionEnd) {
+    if (record.applicationStatus === 'provisioned' && record.nextBillingCycle) {
       const now = new Date();
-      const end = new Date(record.subscriptionEnd);
+      const end = new Date(record.nextBillingCycle);
       if (now >= end) {
         await markExpiredAndReturn(res, record.id, cacheKey);
         return;
       }
     }
 
-    let sName = record.id;
-    if (!sName.startsWith('tenant_')) sName = `tenant_${sName}`;
-    sName = sName.replace(/-/g, '_');
-
     tenantData = {
       tenantId: record.id,
-      schemaName: sName,
       status: record.applicationStatus,
       subscriptionType: record.subscriptionType || 'starter',
-      subscriptionEnd: record.subscriptionEnd?.toISOString(),
+      nextBillingCycle: record.nextBillingCycle?.toISOString(),
+      isActive: record.isActive,
     };
 
     redisClient.setEx(cacheKey, 300, JSON.stringify(tenantData)).catch(e =>

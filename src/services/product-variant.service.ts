@@ -1,4 +1,4 @@
-import { withTenantSchema } from '../db/with-tenant-schema';
+import { withTenantDb } from '../db/with-tenant-db';
 import * as schema from '../db/tenant_schema';
 import { eq, and, sql, isNull } from 'drizzle-orm';
 import crypto from 'crypto';
@@ -34,7 +34,7 @@ export async function createVariant(productId: string, input: CreateVariantInput
     throw new Error('Harga varian harus berupa angka yang valid');
   }
 
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const existingProduct = await tx.select({ id: schema.products.id, isGlobal: schema.products.isGlobal })
       .from(schema.products)
       .where(eq(schema.products.id, productId))
@@ -104,7 +104,7 @@ export async function createVariant(productId: string, input: CreateVariantInput
 }
 
 export async function getVariantsByProduct(productId: string, outletId?: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [parentProduct] = await tx.select({ sku: schema.products.sku })
       .from(schema.products)
       .where(eq(schema.products.id, productId))
@@ -153,7 +153,7 @@ export async function getVariantsByProduct(productId: string, outletId?: string)
 }
 
 export async function updateVariant(variantId: string, input: UpdateVariantInput) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const existing = await tx.select()
       .from(schema.productVariants)
       .where(eq(schema.productVariants.id, variantId));
@@ -183,7 +183,7 @@ export async function updateVariant(variantId: string, input: UpdateVariantInput
 }
 
 export async function softDeleteVariant(variantId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     await tx.update(schema.productVariants)
       .set({ isActive: false })
       .where(eq(schema.productVariants.id, variantId));
@@ -192,7 +192,7 @@ export async function softDeleteVariant(variantId: string) {
 }
 
 export async function upsertOutletVariant(outletId: string, variantId: string, input: UpsertOutletVariantInput) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [variant] = await tx.select()
       .from(schema.productVariants)
       .where(eq(schema.productVariants.id, variantId))

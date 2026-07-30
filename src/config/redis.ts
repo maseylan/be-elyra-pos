@@ -15,4 +15,14 @@ export const connectRedis = async () => {
   }
 };
 
+export const clearRedisCache = async () => {
+  try {
+    await redisClient.flushAll();
+    return true;
+  } catch (err) {
+    console.error('Failed to flush Redis:', err);
+    throw err;
+  }
+};
+
 export default redisClient;

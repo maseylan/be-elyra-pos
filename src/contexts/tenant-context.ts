@@ -1,12 +1,11 @@
 import { AsyncLocalStorage } from 'async_hooks';
 
 export interface TenantContextData {
-  schemaName: string;
   tenantId: string;
   status: string;
   subscriptionType: string;
-  subscriptionEnd?: string;
-  outletId?: string;
+  nextBillingCycle?: string;
+  isActive: boolean;
 }
 
 export const tenantContext = new AsyncLocalStorage<TenantContextData>();

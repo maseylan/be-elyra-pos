@@ -1,4 +1,4 @@
-import { withTenantSchema } from '../db/with-tenant-schema';
+import { withTenantDb } from '../db/with-tenant-db';
 import * as schema from '../db/tenant_schema';
 import { eq, and, notInArray, inArray, sql, or, isNull } from 'drizzle-orm';
 import crypto from 'crypto';
@@ -33,7 +33,7 @@ interface CreateProductInput {
 
 export async function createProduct(input: CreateProductInput) {
   const id = crypto.randomUUID();
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const isStockType = (input.type ?? 'STOCK') === 'STOCK';
 
     const costPriceNum = (input.costPrice !== undefined && input.costPrice !== null && !isNaN(Number(input.costPrice))) ? Number(input.costPrice) : 0;
@@ -149,7 +149,7 @@ export async function createProduct(input: CreateProductInput) {
 }
 
 export async function getProductById(id: string, outletId?: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const results = await tx.select().from(schema.products).where(eq(schema.products.id, id));
     const product = results[0];
 
@@ -355,7 +355,7 @@ export async function getProductById(id: string, outletId?: string) {
 }
 
 export async function deleteProduct(id: string) {
-  const updated = await withTenantSchema(async (tx) => {
+  const updated = await withTenantDb(async (tx) => {
     return tx.update(schema.products)
       .set({ isActive: false, updatedAt: new Date() })
       .where(eq(schema.products.id, id))
@@ -370,7 +370,7 @@ export async function deleteProduct(id: string) {
 }
 
 export async function updateProduct(id: string, input: Partial<CreateProductInput>) {
-  const updated = await withTenantSchema(async (tx) => {
+  const updated = await withTenantDb(async (tx) => {
     const payload: any = { ...input };
     payload.updatedAt = new Date();
     delete payload.outletIds;
@@ -461,7 +461,7 @@ export async function listProducts(params: { page: number; limit: number; catego
   const offset = (params.page - 1) * params.limit;
   const st = (params.status || 'ACTIVE').toUpperCase();
 
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const conditions: any[] = [];
 
     if (st === 'ARCHIVED') {

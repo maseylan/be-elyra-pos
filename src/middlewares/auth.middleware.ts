@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyAccessToken, AccessTokenPayload } from '../services/token.service';
+import { getCurrentTenant } from '../contexts/tenant-context';
 
 export interface AuthUser {
   userId?: string;
@@ -68,7 +69,6 @@ export const requireSuperadmin = (req: Request, res: Response, next: NextFunctio
 };
 
 export const authorizeTenantAccess = (req: Request, res: Response, next: NextFunction) => {
-  const { getCurrentTenant } = require('../contexts/tenant-context');
   try {
     const { tenantId: requestedTenantId } = getCurrentTenant();
     if (req.user?.tenantId !== requestedTenantId) {
@@ -81,7 +81,6 @@ export const authorizeTenantAccess = (req: Request, res: Response, next: NextFun
 };
 
 export const requireLoyaltyAccess = (req: Request, res: Response, next: NextFunction) => {
-  const { getCurrentTenant } = require('../contexts/tenant-context');
   try {
     const { subscriptionType } = getCurrentTenant();
     if (subscriptionType === 'starter') {

@@ -21,6 +21,7 @@ const adjustStockSchema = z.object({
   type: z.enum(['restock', 'stock_out', 'adjustment', 'waste', 'return']),
   quantity: z.number().int(),
   note: z.string().max(255).optional(),
+  reason: z.string().max(255).optional(),
   userId: z.string().optional(),
   createdBy: z.string().optional(),
 });
@@ -59,6 +60,7 @@ export const adjustStock = async (req: Request, res: Response, next: NextFunctio
       type: parsed.data.type,
       quantity: parsed.data.quantity,
       note: parsed.data.note,
+      reason: parsed.data.reason,
       createdBy,
     });
     res.json(result);

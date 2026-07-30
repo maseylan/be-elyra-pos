@@ -1,4 +1,4 @@
-import { withTenantSchema } from '../db/with-tenant-schema';
+import { withTenantDb } from '../db/with-tenant-db';
 import * as schema from '../db/tenant_schema';
 import { eq, desc } from 'drizzle-orm';
 import crypto from 'crypto';
@@ -18,7 +18,7 @@ interface UpdateFloorPlanInput {
 }
 
 export async function listFloorPlans(outletId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     return await tx
       .select()
       .from(schema.floorPlans)
@@ -28,7 +28,7 @@ export async function listFloorPlans(outletId: string) {
 }
 
 export async function getFloorPlan(id: string, outletId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [plan] = await tx
       .select()
       .from(schema.floorPlans)
@@ -40,7 +40,7 @@ export async function getFloorPlan(id: string, outletId: string) {
 }
 
 export async function createFloorPlan(outletId: string, input: CreateFloorPlanInput) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [plan] = await tx.insert(schema.floorPlans).values({
       id: crypto.randomUUID(),
       outletId,
@@ -54,7 +54,7 @@ export async function createFloorPlan(outletId: string, input: CreateFloorPlanIn
 }
 
 export async function updateFloorPlan(id: string, outletId: string, input: UpdateFloorPlanInput) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [plan] = await tx.update(schema.floorPlans).set({
       ...input,
       updatedAt: new Date(),
@@ -64,7 +64,7 @@ export async function updateFloorPlan(id: string, outletId: string, input: Updat
 }
 
 export async function deleteFloorPlan(id: string, outletId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [plan] = await tx.update(schema.floorPlans).set({
       isActive: false,
       updatedAt: new Date(),

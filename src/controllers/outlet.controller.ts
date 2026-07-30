@@ -1,5 +1,6 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { asyncHandler } from '../utils/asyncHandler';
 import { HttpError } from '../utils/errors';
 import * as outletService from '../services/outlet.service';
 
@@ -24,48 +25,30 @@ const idParamSchema = z.object({
   id: z.string().uuid(),
 });
 
-export const createOutlet = async (req: Request, res: Response) => {
+export const createOutlet = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const parsed = createOutletSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
   }
-  try {
-    const outlet = await outletService.createOutlet(parsed.data);
-    res.status(201).json(outlet);
-  } catch (error: any) {
-    console.error('Failed to create outlet', error);
-    res.status(500).json({ error: 'Failed to create outlet', detail: error?.message });
-  }
-};
+  const outlet = await outletService.createOutlet(parsed.data);
+  res.status(201).json(outlet);
+});
 
-export const getOutlet = async (req: Request, res: Response) => {
+export const getOutlet = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const parsedParams = idParamSchema.safeParse(req.params);
   if (!parsedParams.success) {
     return res.status(400).json({ error: 'Invalid outlet id' });
   }
-  try {
-    const outlet = await outletService.getOutletById(parsedParams.data.id);
-    res.json(outlet);
-  } catch (error) {
-    if (error instanceof HttpError) {
-      return res.status(404).json({ error: error.message });
-    }
-    console.error('Failed to fetch outlet', error);
-    res.status(500).json({ error: 'Failed to fetch outlet', detail: (error as any)?.message });
-  }
-};
+  const outlet = await outletService.getOutletById(parsedParams.data.id);
+  res.json(outlet);
+});
 
-export const listOutlets = async (req: Request, res: Response) => {
-  try {
-    const outlets = await outletService.listOutlets();
-    res.json(outlets);
-  } catch (error: any) {
-    console.error('Failed to fetch outlets', error);
-    res.status(500).json({ error: 'Failed to fetch outlets', detail: error?.message });
-  }
-};
+export const listOutlets = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const outlets = await outletService.listOutlets();
+  res.json(outlets);
+});
 
-export const updateOutlet = async (req: Request, res: Response) => {
+export const updateOutlet = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const parsedParams = idParamSchema.safeParse(req.params);
   if (!parsedParams.success) {
     return res.status(400).json({ error: 'Invalid outlet id' });
@@ -76,31 +59,15 @@ export const updateOutlet = async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
   }
 
-  try {
-    const outlet = await outletService.updateOutlet(parsedParams.data.id, parsed.data);
-    res.json(outlet);
-  } catch (error) {
-    if (error instanceof HttpError) {
-      return res.status(404).json({ error: error.message });
-    }
-    console.error('Failed to update outlet', error);
-    res.status(500).json({ error: 'Failed to update outlet', detail: (error as any)?.message });
-  }
-};
+  const outlet = await outletService.updateOutlet(parsedParams.data.id, parsed.data);
+  res.json(outlet);
+});
 
-export const deactivateOutlet = async (req: Request, res: Response) => {
+export const deactivateOutlet = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const parsedParams = idParamSchema.safeParse(req.params);
   if (!parsedParams.success) {
     return res.status(400).json({ error: 'Invalid outlet id' });
   }
-  try {
-    await outletService.deactivateOutlet(parsedParams.data.id);
-    res.json({ success: true });
-  } catch (error) {
-    if (error instanceof HttpError) {
-      return res.status(404).json({ error: error.message });
-    }
-    console.error('Failed to deactivate outlet', error);
-    res.status(500).json({ error: 'Failed to deactivate outlet', detail: (error as any)?.message });
-  }
-};
+  await outletService.deactivateOutlet(parsedParams.data.id);
+  res.json({ success: true });
+});

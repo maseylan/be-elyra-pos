@@ -7,6 +7,8 @@ import { tenants, ownerBillingRefreshTokens } from '../db/schema';
 import { signAccessToken, generateRefreshToken, hashToken, rotateRefreshToken } from '../services/token.service';
 import { checkLoginLockout, recordFailedLogin, resetLoginAttempts } from '../services/login-lockout.service';
 import { HttpError } from '../utils/errors';
+import { sendResetPassword } from '../services/email.service';
+import { generateResetToken, verifyResetToken } from '../services/otp.service';
 
 const router = Router();
 
@@ -18,8 +20,8 @@ const loginSchema = z.object({
 function setRefreshCookie(res: Response, plainToken: string) {
   res.cookie('refreshToken', plainToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: true,
+    sameSite: 'strict',
     maxAge: 7 * 24 * 60 * 60 * 1000,
     path: '/api/auth',
   });
@@ -28,8 +30,8 @@ function setRefreshCookie(res: Response, plainToken: string) {
 function clearRefreshCookie(res: Response) {
   res.clearCookie('refreshToken', {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: true,
+    sameSite: 'strict',
     path: '/api/auth',
   });
 }
@@ -57,7 +59,11 @@ router.post('/login', async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Akun telah dinonaktifkan' });
     }
 
-    if (tenantRecord.subscriptionEnd && new Date() >= new Date(tenantRecord.subscriptionEnd) && tenantRecord.applicationStatus !== 'expired') {
+    if (!tenantRecord.emailVerified) {
+      return res.status(403).json({ error: 'Email belum diverifikasi. Silakan cek email Anda.' });
+    }
+
+    if (tenantRecord.nextBillingCycle && new Date() >= new Date(tenantRecord.nextBillingCycle) && tenantRecord.applicationStatus !== 'expired') {
       await publicDb.update(tenants)
         .set({ applicationStatus: 'expired' })
         .where(eq(tenants.id, tenantRecord.id))
@@ -99,7 +105,7 @@ router.post('/login', async (req: Request, res: Response) => {
         subdomain: tenantRecord.subdomain,
         ownerName: tenantRecord.ownerName,
         subscriptionType: tenantRecord.subscriptionType,
-        subscriptionEnd: tenantRecord.subscriptionEnd,
+        nextBillingCycle: tenantRecord.nextBillingCycle,
         applicationStatus: tenantRecord.applicationStatus,
       },
     });
@@ -141,6 +147,37 @@ router.post('/refresh', async (req: Request, res: Response) => {
       return res.status(401).json({ error: error.message });
     }
     console.error('Owner-billing refresh error:', error);
+    res.status(500).json({ error: 'Kesalahan server internal' });
+  }
+});
+
+router.post('/forgot-password', async (req: Request, res: Response) => {
+  try {
+    const { email } = z.object({ email: z.string().email() }).parse(req.body);
+    const [tenantRecord] = await publicDb.select().from(tenants).where(eq(tenants.email, email));
+    if (!tenantRecord || !tenantRecord.emailVerified) return res.json({ message: 'Link reset password telah dikirim ke email Anda.' });
+    const token = await generateResetToken(email, 'owner-billing');
+    const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${token}&email=${encodeURIComponent(email)}&type=owner`;
+    sendResetPassword(email, resetLink).catch(e => console.warn('Reset password email failed:', e));
+    res.json({ message: 'Link reset password telah dikirim ke email Anda.' });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) return res.status(400).json({ error: 'Validasi gagal', details: error.issues });
+    console.error('Forgot password error:', error);
+    res.status(500).json({ error: 'Kesalahan server internal' });
+  }
+});
+
+router.post('/reset-password', async (req: Request, res: Response) => {
+  try {
+    const { email, token, password } = z.object({ email: z.string().email(), token: z.string().min(1), password: z.string().min(6) }).parse(req.body);
+    const valid = await verifyResetToken(email, token, 'owner-billing');
+    if (!valid) return res.status(400).json({ error: 'Token tidak valid atau sudah kedaluwarsa' });
+    const hash = await bcrypt.hash(password, 12);
+    await publicDb.update(tenants).set({ passwordHash: hash }).where(eq(tenants.email, email));
+    res.json({ message: 'Password berhasil direset' });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) return res.status(400).json({ error: 'Validasi gagal', details: error.issues });
+    console.error('Reset password error:', error);
     res.status(500).json({ error: 'Kesalahan server internal' });
   }
 });

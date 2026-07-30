@@ -1,4 +1,4 @@
-import { withTenantSchema } from '../db/with-tenant-schema';
+import { withTenantDb } from '../db/with-tenant-db';
 import * as schema from '../db/tenant_schema';
 import { eq, and, sql, desc, inArray, lte, gt, gte, ne } from 'drizzle-orm';
 import crypto from 'crypto';
@@ -19,7 +19,7 @@ export async function listStockMovements(filters: {
   const limit = filters.limit || 50;
   const offset = (page - 1) * limit;
 
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const conditions: any[] = [];
 
     if (filters.outletId) conditions.push(eq(schema.stockMovements.outletId, filters.outletId));
@@ -75,6 +75,7 @@ export async function listStockMovements(filters: {
         stockAfter: r.movement.stockAfter,
         referenceId: r.movement.referenceId,
         note: r.movement.note,
+        reason: r.movement.reason,
         createdBy: r.movement.createdBy,
         userName: r.userName || r.movement.createdBy || 'Admin',
         userRole: r.userRole || 'Store Manager',
@@ -93,9 +94,10 @@ export async function adjustStock(params: {
   type: 'restock' | 'stock_out' | 'adjustment' | 'waste' | 'return';
   quantity: number;
   note?: string;
+  reason?: string;
   createdBy?: string;
 }) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [product] = await tx
       .select()
       .from(schema.products)
@@ -157,6 +159,7 @@ export async function adjustStock(params: {
       quantityChange,
       stockAfter: Math.max(0, newStock),
       note: params.note || null,
+      reason: params.reason || null,
       createdBy: params.createdBy,
     });
 
@@ -165,7 +168,7 @@ export async function adjustStock(params: {
 }
 
 export async function getLowStockProducts(outletId?: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const conditions: any[] = [
       eq(schema.products.type, 'STOCK'),
       eq(schema.products.isActive, true),

@@ -1,4 +1,4 @@
-import { withTenantSchema } from '../db/with-tenant-schema';
+import { withTenantDb } from '../db/with-tenant-db';
 import * as schema from '../db/tenant_schema';
 import { eq, and } from 'drizzle-orm';
 import crypto from 'crypto';
@@ -15,7 +15,7 @@ export interface UpsertOutletAddOnInput {
 }
 
 export async function createAddOn(input: CreateAddOnInput) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const id = crypto.randomUUID();
     await tx.insert(schema.addOns).values({
       id,
@@ -28,7 +28,7 @@ export async function createAddOn(input: CreateAddOnInput) {
 }
 
 export async function getAddOns(outletId?: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const addOnsList = await tx.select()
       .from(schema.addOns)
       .where(eq(schema.addOns.isActive, true));
@@ -61,7 +61,7 @@ export async function getAddOns(outletId?: string) {
 }
 
 export async function getAddOnsForProduct(productId: string, outletId?: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const links = await tx.select({ addOnId: schema.productAddOns.addOnId })
       .from(schema.productAddOns)
       .where(eq(schema.productAddOns.productId, productId));
@@ -75,7 +75,7 @@ export async function getAddOnsForProduct(productId: string, outletId?: string) 
 }
 
 export async function attachAddOnToProduct(productId: string, addOnId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const existing = await tx.select()
       .from(schema.productAddOns)
       .where(and(
@@ -96,7 +96,7 @@ export async function attachAddOnToProduct(productId: string, addOnId: string) {
 }
 
 export async function detachAddOnFromProduct(productId: string, addOnId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     await tx.delete(schema.productAddOns)
       .where(and(
         eq(schema.productAddOns.productId, productId),
@@ -107,7 +107,7 @@ export async function detachAddOnFromProduct(productId: string, addOnId: string)
 }
 
 export async function upsertOutletAddOn(outletId: string, addOnId: string, input: UpsertOutletAddOnInput) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const existing = await tx.select()
       .from(schema.outletAddOns)
       .where(and(

@@ -1,5 +1,5 @@
 import { eq, and, sql, gte, lte, desc } from 'drizzle-orm';
-import { withTenantSchema } from '../db/with-tenant-schema';
+import { withTenantDb } from '../db/with-tenant-db';
 import { cashierSessions, orders } from '../db/tenant_schema';
 import { HttpError } from '../utils/errors';
 import * as outletSettingsService from './outlet-settings.service';
@@ -35,7 +35,7 @@ export interface SessionHistoryFilters {
 }
 
 export const getActiveSession = async (outletId: string, cashierId: string) => {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [session] = await tx
       .select()
       .from(cashierSessions)
@@ -98,8 +98,8 @@ export const getActiveSession = async (outletId: string, cashierId: string) => {
 };
 
 export const openSession = async (params: OpenSessionParams) => {
-  // Resolve & snapshot settings SEBELUM masuk withTenantSchema session,
-  // karena resolveEffectiveSettings juga memanggil withTenantSchema sendiri.
+  // Resolve & snapshot settings SEBELUM masuk withTenantDb session,
+  // karena resolveEffectiveSettings juga memanggil withTenantDb sendiri.
   let settingsSnapshot: Record<string, any> = {};
   try {
     settingsSnapshot = await outletSettingsService.resolveEffectiveSettings(params.outletId);
@@ -110,7 +110,7 @@ export const openSession = async (params: OpenSessionParams) => {
     console.warn('Could not snapshot outlet settings on session open:', e);
   }
 
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     try {
       const [newSession] = await tx
         .insert(cashierSessions)
@@ -141,6 +141,7 @@ async function computeCloseData(tx: any, sessionId: string) {
     .select()
     .from(cashierSessions)
     .where(and(eq(cashierSessions.id, sessionId), eq(cashierSessions.status, 'OPEN')))
+    .for('update')
     .limit(1);
 
   if (!session) throw new HttpError(404, 'Session shift tidak ditemukan atau sudah ditutup');
@@ -169,7 +170,7 @@ async function computeCloseData(tx: any, sessionId: string) {
 }
 
 export const closeSession = async (params: CloseSessionParams) => {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const data = await computeCloseData(tx, params.sessionId);
     const expectedCash = data.startingCash + data.totalCashSales;
     const totalRefunds = data.refundedOrders.reduce((sum: number, r: any) => sum + Number(r.totalAmount || 0), 0);
@@ -185,14 +186,15 @@ export const closeSession = async (params: CloseSessionParams) => {
         totalOrdersCount: data.completedOrders.length,
         closedBy: params.closedBy, closingNotes: params.closingNotes, updatedAt: new Date(),
       })
-      .where(eq(cashierSessions.id, data.session.id))
+      .where(and(eq(cashierSessions.id, data.session.id), eq(cashierSessions.status, 'OPEN')))
       .returning();
+    if (!updatedSession) throw new HttpError(409, 'Session was already closed by another request');
     return updatedSession;
   });
 };
 
 export const forceCloseSession = async (params: ForceCloseSessionParams) => {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const data = await computeCloseData(tx, params.sessionId);
     const expectedCash = data.startingCash + data.totalCashSales;
     const totalRefunds = data.refundedOrders.reduce((sum: number, r: any) => sum + Number(r.totalAmount || 0), 0);
@@ -216,7 +218,7 @@ export const forceCloseSession = async (params: ForceCloseSessionParams) => {
 };
 
 export const getSessionHistory = async (outletId?: string, filters: SessionHistoryFilters = {}) => {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const conditions = [];
 
     if (outletId) {

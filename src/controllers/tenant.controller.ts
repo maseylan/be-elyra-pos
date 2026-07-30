@@ -1,6 +1,13 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import * as tenantService from '../services/tenant.service';
+import { generateVerificationToken, verifyEmailToken } from '../services/otp.service';
+import { sendVerificationEmail, sendBillingInvoice } from '../services/email.service';
+import { publicDb } from '../db/poolManager';
+import { tenants, superAdmins, invoices } from '../db/schema';
+import { eq } from 'drizzle-orm';
+import { asyncHandler } from '../utils/asyncHandler';
+import { HttpError } from '../utils/errors';
 
 const registerSchema = z.object({
   name: z.string().min(1),
@@ -8,158 +15,192 @@ const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
   ownerName: z.string().min(1),
-  whatsappNumber: z.string().optional()
+  whatsappNumber: z.string().optional(),
 });
 
-export const registerTenant = async (req: Request, res: Response) => {
+export const registerTenant = asyncHandler(async (req, res) => {
   try {
     const data = registerSchema.parse(req.body);
     const tenant = await tenantService.registerTenant(data);
-    
+    const token = await generateVerificationToken(data.email);
+    const rootDomain = process.env.ROOT_DOMAIN || 'elyrapos.my.id';
+    const verifyLink = `https://${rootDomain}/verify-email?token=${token}&email=${encodeURIComponent(data.email)}`;
+    sendVerificationEmail(data.email, verifyLink, { tenantId: tenant.id, tenantName: tenant.name }).catch(e => console.warn('Verification email failed:', e));
     res.status(201).json({
-      message: 'Tenant registered successfully. Please proceed to subscription/pricing selection.',
-      tenant
+      message: 'Pendaftaran berhasil. Silakan cek email untuk verifikasi.',
+      tenant: { id: tenant.id, name: tenant.name, subdomain: tenant.subdomain },
     });
   } catch (error: any) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Validasi gagal', details: error.issues });
-    }
-    if (error.message === 'SUBDOMAIN_TAKEN') {
-      return res.status(400).json({ error: 'Subdomain already taken' });
-    }
-    console.error('Registration error:', error);
-    res.status(500).json({ error: 'Internal server error', details: error.message });
+    if (error instanceof z.ZodError) throw error;
+    if (error.message === 'SUBDOMAIN_TAKEN') throw new HttpError(400, error.message);
+    throw error;
   }
-};
-
-const provisionSchema = z.object({
-  plan: z.string().min(1)
 });
 
-export const provisionTenant = async (req: Request, res: Response) => {
-  try {
-    const { tenantId } = req.params;
-    const { plan } = provisionSchema.parse(req.body);
-    
-    const result = await tenantService.provisionTenant(tenantId as string, plan);
-    
-    res.status(200).json({
-      message: 'Tenant provisioned successfully',
-      ...result
-    });
-  } catch (error: any) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Validasi gagal', details: error.issues });
-    }
-    console.error('Provisioning error:', error);
-    res.status(500).json({ error: 'Failed to provision tenant', details: error.message });
+export const verifyEmail = asyncHandler(async (req, res) => {
+  const { email, token } = z.object({ email: z.string().email(), token: z.string().min(1) }).parse(req.body);
+  const valid = await verifyEmailToken(email, token);
+  if (!valid) {
+    return res.status(400).json({ error: 'Token tidak valid atau sudah kedaluwarsa' });
   }
-};
+  await publicDb.update(tenants).set({ emailVerified: true }).where(eq(tenants.email, email)).catch(() => {});
+  await publicDb.update(superAdmins).set({ emailVerified: true }).where(eq(superAdmins.email, email)).catch(() => {});
 
-export const resolveTenant = async (req: Request, res: Response) => {
+  // create registration invoice async
+  const [tenant] = await publicDb.select().from(tenants).where(eq(tenants.email, email)).catch(() => []);
+  if (tenant) {
+    const now = new Date();
+    const periodEnd = new Date(now);
+    periodEnd.setMonth(periodEnd.getMonth() + 1);
+    const id = `inv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    await publicDb.insert(invoices).values({
+      id, tenantId: tenant.id, planId: tenant.subscriptionType || 'starter',
+      amount: 0, status: 'pending', dueDate: now,
+      periodStart: now, periodEnd, notes: 'Registrasi akun Elyra POS',
+    }).catch(e => console.error('Invoice creation failed:', e));
+
+    sendBillingInvoice(tenant.email, {
+      STATUS: 'Pending',
+      TENANT_NAME: tenant.name,
+      TENANT_EMAIL: tenant.email,
+      TENANT_SUBDOMAIN: tenant.subdomain,
+      PLAN_NAME: (tenant.subscriptionType || 'Starter').toUpperCase(),
+      STORAGE: `${Number(tenant.storageGb) < 1 ? '100 MB' : tenant.storageGb + ' GB'}`,
+      PERIOD: `${now.toLocaleDateString('id-ID')} - ${periodEnd.toLocaleDateString('id-ID')}`,
+      AMOUNT: 'Rp 0 (Gratis)',
+    }, { tenantId: tenant.id, tenantName: tenant.name }).catch(e => console.error('Billing invoice email failed:', e));
+  }
+
+  res.json({ message: 'Email berhasil diverifikasi. Silakan login.' });
+});
+
+export const provisionTenant = asyncHandler(async (req, res) => {
+  const tenantId = req.params.tenantId as string;
+  const { plan } = req.body;
+  const result = await tenantService.provisionTenant(tenantId, plan);
+  res.json(result);
+});
+
+export const resolveTenant = asyncHandler(async (req, res) => {
   try {
-    const { subdomain } = req.query;
-    if (!subdomain || typeof subdomain !== 'string') {
-      return res.status(400).json({ error: 'Subdomain query parameter is required' });
-    }
-
+    const subdomain = req.query.subdomain as string;
+    if (!subdomain) return res.status(400).json({ error: 'Subdomain required' });
     const tenant = await tenantService.resolveTenant(subdomain);
     res.json(tenant);
   } catch (error: any) {
-    if (error.message === 'TENANT_NOT_FOUND') return res.status(404).json({ error: 'Tenant not found' });
-    if (error.message === 'TENANT_DEACTIVATED') return res.status(403).json({ error: 'Tenant is deactivated' });
-    if (error.message === 'TENANT_NOT_PROVISIONED') return res.status(403).json({ error: 'Tenant schema is not yet provisioned. Please setup the database first.' });
-    if (error.message === 'TENANT_EXPIRED') return res.status(402).json({ error: 'Your subscription has ended. Please make payment to continue.' });
-    
-    console.error('Resolve tenant error:', error);
-    res.status(500).json({ error: 'Failed to resolve tenant' });
+    if (error.message === 'TENANT_NOT_FOUND') throw new HttpError(404, error.message);
+    if (error.message === 'TENANT_DEACTIVATED') throw new HttpError(403, error.message);
+    if (error.message === 'TENANT_EXPIRED') throw new HttpError(402, error.message);
+    if (error.message === 'TENANT_NOT_PROVISIONED') throw new HttpError(400, error.message);
+    throw error;
   }
-};
+});
 
-export const setupDatabase = async (req: Request, res: Response) => {
+export const getAllTenants = asyncHandler(async (req, res) => {
+  const tenantsList = await tenantService.getAllTenants();
+  res.json(tenantsList);
+});
+
+export const getTenantDetails = asyncHandler(async (req, res) => {
   try {
-    const tenantId = req.params.tenantId || req.body?.tenantId || req.user?.tenantId;
-    if (!tenantId) {
-      return res.status(400).json({ error: 'Tenant ID is required' });
-    }
-    
-    const result = await tenantService.setupDatabase(tenantId);
-    
-    res.status(200).json({
-      message: `Database setup completed successfully for tenant ${tenantId}`,
-      ...result
-    });
+    const tenant = await tenantService.getTenantById(req.params.tenantId as string);
+    res.json(tenant);
   } catch (error: any) {
-    console.error('Database setup error:', error);
-    res.status(500).json({ error: 'Failed to setup database', details: error.message });
+    if (error.message === 'TENANT_NOT_FOUND') throw new HttpError(404, error.message);
+    throw error;
   }
-};
+});
 
-export const getAllTenants = async (req: Request, res: Response) => {
-  try {
-    const allTenants = await tenantService.getAllTenants();
-    res.status(200).json(allTenants);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-};
+export const setupDatabase = asyncHandler(async (req, res) => {
+  const tenantId = (req.params.tenantId as string) || req.body.tenantId;
+  if (!tenantId) return res.status(400).json({ error: 'tenantId required' });
+  const result = await tenantService.setupDatabase(tenantId);
+  res.json(result);
+});
 
-export const getTenantDetails = async (req: Request, res: Response) => {
+export const toggleTenantStatus = asyncHandler(async (req, res) => {
   try {
-    const { tenantId } = req.params;
-    const tenant = await tenantService.getTenantById(tenantId as string);
-    res.status(200).json(tenant);
-  } catch (error: any) {
-    if (error.message === 'TENANT_NOT_FOUND') {
-      return res.status(404).json({ error: 'Tenant not found' });
-    }
-    console.error('getTenantDetails error:', error);
-    res.status(500).json({ error: 'Failed to fetch tenant details' });
-  }
-};
-
-export const toggleTenantStatus = async (req: Request, res: Response) => {
-  try {
-    const { tenantId } = req.params;
     const { isActive } = req.body;
-    if (typeof isActive !== 'boolean') {
-      return res.status(400).json({ error: 'isActive boolean field is required' });
-    }
-
-    const result = await tenantService.toggleTenantStatus(tenantId as string, isActive);
-    res.status(200).json({
-      message: `Tenant ${isActive ? 'activated' : 'deactivated'} successfully`,
-      ...result
-    });
+    const tenant = await tenantService.toggleTenantStatus(req.params.tenantId as string, isActive);
+    res.json(tenant);
   } catch (error: any) {
-    if (error.message === 'TENANT_NOT_FOUND') {
-      return res.status(404).json({ error: 'Tenant not found' });
-    }
-    console.error('toggleTenantStatus error:', error);
-    res.status(500).json({ error: 'Failed to update tenant status' });
+    if (error.message === 'TENANT_NOT_FOUND') throw new HttpError(404, error.message);
+    throw error;
   }
-};
+});
 
-export const updateTenantPlan = async (req: Request, res: Response) => {
+export const updateTenantPlan = asyncHandler(async (req, res) => {
   try {
-    const { tenantId } = req.params;
     const { plan } = req.body;
-    if (!plan || typeof plan !== 'string') {
-      return res.status(400).json({ error: 'plan string field is required' });
-    }
-
-    const result = await tenantService.updateTenantPlan(tenantId as string, plan);
-    res.status(200).json({
-      message: `Tenant subscription plan updated to ${plan}`,
-      ...result
-    });
+    const result = await tenantService.updateTenantPlan(req.params.tenantId as string, plan);
+    res.json(result);
   } catch (error: any) {
-    if (error.message === 'TENANT_NOT_FOUND') {
-      return res.status(404).json({ error: 'Tenant not found' });
-    }
-    console.error('updateTenantPlan error:', error);
-    res.status(500).json({ error: 'Failed to update tenant plan' });
+    if (error.message === 'TENANT_NOT_FOUND') throw new HttpError(404, error.message);
+    throw error;
   }
-};
+});
 
+export const getTenantDbInfo = asyncHandler(async (req, res) => {
+  try {
+    const info = await tenantService.getTenantDbInfo(req.params.tenantId as string);
+    res.json(info);
+  } catch (error: any) {
+    if (error.message === 'TENANT_NOT_FOUND') throw new HttpError(404, error.message);
+    throw error;
+  }
+});
+
+export const checkTenantDbConnection = asyncHandler(async (req, res) => {
+  try {
+    const result = await tenantService.checkTenantDbConnection(req.params.tenantId as string);
+    if (result.status) {
+      await publicDb.update(tenants)
+        .set({ lastHealthCheckStatus: result.status, lastHealthCheckAt: new Date() })
+        .where(eq(tenants.id, req.params.tenantId as string))
+        .catch(() => {});
+    }
+    res.json(result);
+  } catch (error: any) {
+    if (error.message === 'TENANT_NOT_FOUND') throw new HttpError(404, error.message);
+    throw error;
+  }
+});
+
+export const getTenantSystemInfo = asyncHandler(async (req, res) => {
+  try {
+    const info = await tenantService.getTenantSystemInfo(req.params.tenantId as string);
+    res.json(info);
+  } catch (error: any) {
+    if (error.message === 'TENANT_NOT_FOUND') throw new HttpError(404, error.message);
+    throw error;
+  }
+});
+
+export const platformHealthCheck = asyncHandler(async (req, res) => {
+  const result = await tenantService.platformHealthCheck();
+  res.json(result);
+});
+
+export const clearPlatformCache = asyncHandler(async (req, res) => {
+  const result = await tenantService.clearPlatformCache();
+  res.json(result);
+});
+
+export const getPlatformStats = asyncHandler(async (req, res) => {
+  const stats = await tenantService.getPlatformStats();
+  res.json(stats);
+});
+
+export const checkAvailability = asyncHandler(async (req, res) => {
+  const { subdomain, email } = req.query;
+  const result: Record<string, boolean> = {};
+  if (typeof subdomain === 'string') {
+    const existing = await publicDb.select({ id: tenants.id }).from(tenants).where(eq(tenants.subdomain, subdomain)).limit(1);
+    result.subdomain = existing.length === 0;
+  }
+  if (typeof email === 'string') {
+    const existing = await publicDb.select({ id: tenants.id }).from(tenants).where(eq(tenants.email, email)).limit(1);
+    result.email = existing.length === 0;
+  }
+  res.json(result);
+});

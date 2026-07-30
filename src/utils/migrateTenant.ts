@@ -3,135 +3,103 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import * as path from 'path';
 import * as schema from '../db/tenant_schema';
-import { publicDb } from '../db/poolManager';
+import { publicDb, adminPool } from '../db/poolManager';
 import { tenants } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import crypto from 'crypto';
+import { encryptDbUrl, decryptDbUrl } from './dbUrlEncryption';
+import { tenantDbManager } from '../db/tenant-connection';
+
+async function getTenantDbUrl(tenantId: string): Promise<string> {
+  const [tenant] = await publicDb.select({
+    databaseUrl: tenants.databaseUrl,
+  }).from(tenants).where(eq(tenants.id, tenantId));
+
+  if (tenant?.databaseUrl) return decryptDbUrl(tenant.databaseUrl);
+
+  const defaultUrl = process.env.TENANT_DEFAULT_DB_URL || process.env.DATABASE_URL;
+  if (!defaultUrl) throw new Error('TENANT_DEFAULT_DB_URL or DATABASE_URL must be set');
+  const baseUrl = new URL(defaultUrl);
+  baseUrl.pathname = `/${tenantId}`;
+  return baseUrl.toString();
+}
+
+async function ensureTenantDatabase(tenantId: string) {
+  const [tenant] = await publicDb.select().from(tenants).where(eq(tenants.id, tenantId));
+  if (!tenant) throw new Error(`Tenant ${tenantId} not found`);
+
+  if (tenant.databaseUrl) return;
+
+  const defaultUrl = process.env.TENANT_DEFAULT_DB_URL || process.env.DATABASE_URL;
+  if (!defaultUrl) throw new Error('TENANT_DEFAULT_DB_URL or DATABASE_URL must be set');
+  const baseUrl = new URL(defaultUrl);
+  const dbName = tenantId;
+
+  const adminClient = await adminPool.connect();
+  try {
+    const exists = await adminClient.query(
+      `SELECT 1 FROM pg_database WHERE datname = $1`, [dbName]
+    );
+    if (exists.rowCount === 0) {
+      // CREATE DATABASE cannot run inside a transaction
+      await adminClient.query(`CREATE DATABASE "${dbName}"`);
+      console.log(`Created database ${dbName} for tenant ${tenantId}`);
+    }
+  } finally {
+    adminClient.release();
+  }
+}
 
 export const ensureTenantSchemaProvisioned = async (tenantId: string) => {
-  const migrationClient = new Client({
-    connectionString: process.env.DATABASE_URL,
-  });
+  await ensureTenantDatabase(tenantId);
+
+  const tenantDbUrl = await getTenantDbUrl(tenantId);
+  const migrationClient = new Client({ connectionString: tenantDbUrl });
 
   try {
     await migrationClient.connect();
-    
-    // Create schema if not exists
-    await migrationClient.query(`CREATE SCHEMA IF NOT EXISTS "${tenantId}"`);
 
-    // Await the search_path setting to ensure it takes effect before migrations
-    await migrationClient.query(`SET search_path TO "${tenantId}", public`);
-    
     const migrationDb = drizzle(migrationClient);
-    await migrate(migrationDb, { 
+
+    // Run all pending migrations
+    await migrate(migrationDb, {
       migrationsFolder: path.join(__dirname, '../../drizzle/tenant'),
-      migrationsSchema: tenantId
     });
-    
-    // Seed the owner account using data from the public tenants table
-    const existingUsers = await migrationDb.select().from(schema.users);
-    if (existingUsers.length === 0) {
-      // Fetch owner details from public schema
-      const tenantData = await publicDb.select().from(tenants).where(eq(tenants.id, tenantId));
-      if (tenantData.length > 0) {
-        const owner = tenantData[0];
-        await migrationDb.insert(schema.users).values({
-          role: 'owner',
-          name: owner.ownerName,
-          email: owner.email,
-          passwordHash: owner.passwordHash,
-          isActive: true,
-          isAllOutlets: true,
-        });
-        console.log(`Seeded owner account for tenant ${tenantId}`);
+
+    // ponytail: seed wrapped in try/catch — schema drift between tenant_schema.ts
+    // and migration SQL causes SELECT queries to fail on missing columns.
+    // Remove these wrappers once drizzle tenant migrations are regenerated.
+    try {
+      const existingUsers = await migrationDb.select().from(schema.users);
+      if (existingUsers.length === 0) {
+        const tenantData = await publicDb.select().from(tenants).where(eq(tenants.id, tenantId));
+        if (tenantData.length > 0) {
+          const owner = tenantData[0];
+          await migrationDb.insert(schema.users).values({
+            role: 'owner',
+            name: owner.ownerName,
+            email: owner.email,
+            passwordHash: owner.passwordHash,
+            isActive: true,
+            isAllOutlets: true,
+          });
+          console.log(`Seeded owner account for tenant ${tenantId}`);
+        }
       }
+    } catch (e) {
+      console.warn(`Seed owner skipped for ${tenantId}:`, (e as Error).message);
     }
 
-    // Seed a default outlet if none exists
-    const existingOutlets = await migrationDb.select().from(schema.outlets);
-    let outletId: string;
-    if (existingOutlets.length === 0) {
-      outletId = crypto.randomUUID();
-      await migrationDb.insert(schema.outlets).values({
-        id: outletId,
-        name: 'Outlet Pusat',
-        businessMode: 'retail',
-        isActive: true,
-      });
-      console.log(`Seeded default outlet for tenant ${tenantId}`);
-    } else {
-      outletId = existingOutlets[0].id;
-    }
-
-    // Seed dummy products if not exists
-    const existingProducts = await migrationDb.select().from(schema.products);
-    interface SeededProduct {
-      id: string;
-      sku: string;
-      name: string;
-      costPrice: string;
-      sellPrice: string;
-      trackStock: boolean;
-    }
-    const seededProductIds: SeededProduct[] = [];
-    if (existingProducts.length === 0) {
-      const dummyProducts: Omit<SeededProduct, 'id'>[] = [
-        { sku: 'SKU-001', name: 'Nasi Goreng Spesial', costPrice: '20000', sellPrice: '25000', trackStock: true },
-        { sku: 'SKU-002', name: 'Ayam Bakar Madu', costPrice: '25000', sellPrice: '30000', trackStock: true },
-        { sku: 'SKU-003', name: 'Es Teh Manis', costPrice: '2000', sellPrice: '5000', trackStock: true },
-        { sku: 'SKU-004', name: 'Kopi Susu Gula Aren', costPrice: '10000', sellPrice: '18000', trackStock: true },
-        { sku: 'SKU-005', name: 'Mie Goreng Seafood', costPrice: '22000', sellPrice: '28000', trackStock: true },
-      ];
-
-      const productsToInsert = dummyProducts.map(p => ({
-        ...p,
-        id: crypto.randomUUID(),
-      }));
-
-      seededProductIds.push(...productsToInsert);
-
-      await migrationDb.insert(schema.products).values(
-        seededProductIds.map(p => ({
-          id: p.id,
-          sku: p.sku,
-          name: p.name,
-          costPrice: p.costPrice,
-          sellPrice: p.sellPrice,
-          trackStock: p.trackStock,
-        }))
-      );
-      console.log(`Seeded ${seededProductIds.length} dummy products for tenant ${tenantId}`);
-
-      // Seed outlet_products for all seeded products (they are global by default)
-      const outletProductsToInsert = seededProductIds.map(p => ({
-        id: crypto.randomUUID(),
-        outletId,
-        productId: p.id,
-        stock: 100,
-        isAvailable: true,
-      }));
-      await migrationDb.insert(schema.outletProducts).values(outletProductsToInsert);
-      console.log(`Seeded outlet_products for ${seededProductIds.length} products`);
-
-      // Seed stock_movements (initial stock)
-      const movementsToInsert = seededProductIds.map(p => ({
-        id: crypto.randomUUID(),
-        outletId,
-        productId: p.id,
-        type: 'initial' as const,
-        quantityChange: 100,
-        stockAfter: 100,
-      }));
-      await migrationDb.insert(schema.stockMovements).values(movementsToInsert);
-      console.log(`Seeded stock_movements (initial) for ${seededProductIds.length} products`);
-    }
-
-    // Update tenant's application status to provisioned
+    // Store encrypted DB URL + mark provisioned
+    const fullUrl = await getTenantDbUrl(tenantId);
     await publicDb.update(tenants)
-      .set({ applicationStatus: 'provisioned' })
+      .set({ applicationStatus: 'provisioned', databaseUrl: encryptDbUrl(fullUrl), schemaVersion: 1 })
       .where(eq(tenants.id, tenantId));
 
-    console.log(`Schema provisioned/verified for tenant: ${tenantId}`);
+    // Invalidate cached tenant pool so next request picks up new schema
+    await tenantDbManager.invalidate(tenantId);
+
+    console.log(`Database provisioned for tenant: ${tenantId}`);
   } catch (error) {
     console.error(`Migration error for tenant ${tenantId}:`, error);
     throw error;

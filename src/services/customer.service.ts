@@ -1,10 +1,10 @@
-import { withTenantSchema } from '../db/with-tenant-schema';
+import { withTenantDb } from '../db/with-tenant-db';
 import * as schema from '../db/tenant_schema';
 import { eq, desc, sql, and, or, ilike } from 'drizzle-orm';
 import crypto from 'crypto';
 
 export async function listCustomers(filters: { search?: string; page?: number; limit?: number }) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const page = filters.page || 1;
     const limit = filters.limit || 20;
     const offset = (page - 1) * limit;
@@ -56,7 +56,7 @@ export async function listCustomers(filters: { search?: string; page?: number; l
 }
 
 export async function getCustomerById(customerId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [customer] = await tx
       .select({
         id: schema.customers.id,
@@ -128,7 +128,7 @@ export async function getCustomerById(customerId: string) {
 }
 
 export async function adjustPoints(memberId: string, programId: string, points: number, reason: string, outletId: string, adjustedBy?: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [member] = await tx
       .select()
       .from(schema.loyaltyMembers)
@@ -160,7 +160,7 @@ export async function adjustPoints(memberId: string, programId: string, points: 
 }
 
 export async function enrollCustomerInProgram(customerId: string, programId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [program] = await tx
       .select()
       .from(schema.loyaltyPrograms)
@@ -203,7 +203,7 @@ export async function enrollCustomerInProgram(customerId: string, programId: str
 }
 
 export async function createCustomer(data: { name: string; phone: string; email?: string }) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [existing] = await tx
       .select()
       .from(schema.customers)

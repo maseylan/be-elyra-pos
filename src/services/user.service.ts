@@ -1,11 +1,11 @@
-import { withTenantSchema } from '../db/with-tenant-schema';
+import { withTenantDb } from '../db/with-tenant-db';
 import * as schema from '../db/tenant_schema';
 import { eq, sql } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 import { getCurrentTenant } from '../contexts/tenant-context';
 
 export const getCashiers = async () => {
-  return await withTenantSchema(async (tx) => {
+  return await withTenantDb(async (tx) => {
     return tx.select({
       id: schema.users.id,
       name: schema.users.name,
@@ -14,7 +14,7 @@ export const getCashiers = async () => {
 };
 
 export const getAccounts = async () => {
-  return await withTenantSchema(async (tx) => {
+  return await withTenantDb(async (tx) => {
     return tx.select({
       id: schema.users.id,
       name: schema.users.name,
@@ -40,7 +40,7 @@ export const addAccount = async (data: any) => {
     passwordHash = await bcrypt.hash(password, 10);
   }
 
-  await withTenantSchema(async (tx) => {
+  await withTenantDb(async (tx) => {
     const hashString = (str: string) => {
       let hash = 0;
       for (let i = 0; i < str.length; i++) {
@@ -78,7 +78,7 @@ export const addAccount = async (data: any) => {
 };
 
 export const removeAccount = async (accountId: string) => {
-  await withTenantSchema(async (tx) => {
+  await withTenantDb(async (tx) => {
     await tx.delete(schema.users).where(eq(schema.users.id, accountId));
   });
   return { success: true };

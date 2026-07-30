@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { HttpError } from '../utils/errors';
 import * as sessionService from '../services/session.service';
 
-vi.mock('../db/with-tenant-schema', () => ({
-  withTenantSchema: vi.fn(async (cb) => {
+vi.mock('../db/with-tenant-db', () => ({
+  withTenantDb: vi.fn(async (cb) => {
     // Pass mock tx
     return cb(mockTx);
   }),

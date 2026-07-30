@@ -1,4 +1,4 @@
-import { withTenantSchema } from '../db/with-tenant-schema';
+import { withTenantDb } from '../db/with-tenant-db';
 import * as schema from '../db/tenant_schema';
 import { eq, and } from 'drizzle-orm';
 import crypto from 'crypto';
@@ -26,7 +26,7 @@ interface UpdateTableInput {
 }
 
 export async function listTables(floorPlanId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     return await tx
       .select()
       .from(schema.tables)
@@ -39,7 +39,7 @@ export async function listTables(floorPlanId: string) {
 }
 
 export async function getTable(id: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [table] = await tx
       .select()
       .from(schema.tables)
@@ -50,7 +50,7 @@ export async function getTable(id: string) {
 }
 
 export async function createTable(input: CreateTableInput) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [table] = await tx.insert(schema.tables).values({
       id: crypto.randomUUID(),
       floorPlanId: input.floorPlanId,
@@ -67,7 +67,7 @@ export async function createTable(input: CreateTableInput) {
 }
 
 export async function updateTable(id: string, input: UpdateTableInput) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [table] = await tx.update(schema.tables).set({
       ...input,
       updatedAt: new Date(),
@@ -77,7 +77,7 @@ export async function updateTable(id: string, input: UpdateTableInput) {
 }
 
 export async function deleteTable(id: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [table] = await tx.update(schema.tables).set({
       isActive: false,
       updatedAt: new Date(),
@@ -87,7 +87,7 @@ export async function deleteTable(id: string) {
 }
 
 export async function updateTableStatus(id: string, status: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [table] = await tx.update(schema.tables).set({
       status,
       updatedAt: new Date(),
@@ -97,7 +97,7 @@ export async function updateTableStatus(id: string, status: string) {
 }
 
 export async function bulkUpdatePositions(updates: Array<{ id: string; posX: number; posY: number }>) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     for (const u of updates) {
       await tx.update(schema.tables).set({
         posX: u.posX,

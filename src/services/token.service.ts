@@ -3,7 +3,9 @@ import jwt from 'jsonwebtoken';
 import { eq } from 'drizzle-orm';
 import { HttpError } from '../utils/errors';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'secret-key-123';
+const _JWT_SECRET = process.env.JWT_SECRET;
+if (!_JWT_SECRET) throw new Error('JWT_SECRET environment variable is required');
+const JWT_SECRET: string = _JWT_SECRET;
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_DAYS = 7;
 
@@ -49,13 +51,30 @@ export async function rotateRefreshToken(
   const incomingHash = hashToken(incomingPlainToken);
 
   return db.transaction(async (tx: any) => {
-    const [existing] = await tx
+    let [existing] = await tx
       .select()
       .from(table)
       .where(eq(table.tokenHash, incomingHash))
       .for('update');
 
-    if (!existing || existing.expiresAt < new Date()) {
+    if (!existing) {
+      [existing] = await tx
+        .select()
+        .from(table)
+        .where(eq(table.previousTokenHash, incomingHash))
+        .for('update');
+
+      if (existing) {
+        // ponytail: reuse detected — revoke all tokens for this user
+        const fkCol = table.superAdminId ?? table.tenantId ?? table.userId;
+        await tx.delete(table).where(eq(fkCol, existing[fkCol]));
+        throw new HttpError(401, 'Session revoked — possible token theft');
+      }
+
+      throw new HttpError(401, 'Invalid or expired refresh token');
+    }
+
+    if (existing.expiresAt < new Date()) {
       throw new HttpError(401, 'Invalid or expired refresh token');
     }
 
@@ -63,6 +82,7 @@ export async function rotateRefreshToken(
     await tx
       .update(table)
       .set({
+        previousTokenHash: existing.tokenHash,
         tokenHash: hash,
         expiresAt: new Date(Date.now() + REFRESH_TOKEN_DAYS * 24 * 60 * 60 * 1000),
       })

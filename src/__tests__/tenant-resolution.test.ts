@@ -34,37 +34,9 @@ vi.mock('../db/poolManager', () => ({
       });
     })
   },
-  tenantPool: {
-    query: vi.fn(() => Promise.resolve({ rows: [] })),
+  adminPool: {
+    connect: vi.fn(() => Promise.resolve({ query: vi.fn(), release: vi.fn() })),
   },
-  tenantDbPool: {
-    transaction: vi.fn(async (cb) => {
-      let schemaName = '';
-      try {
-        schemaName = getCurrentTenant().schemaName;
-      } catch {}
-
-      const mockProducts = schemaName === 'tenant_a' 
-        ? [{ products: { id: '1', name: 'Produk A Only', costPrice: '10', sellPrice: '15' }, categories: null }] 
-        : [{ products: { id: '2', name: 'Produk B Only', costPrice: '10', sellPrice: '15' }, categories: null }];
-        
-      const queryBuilder: any = {
-        leftJoin: vi.fn(() => queryBuilder),
-        innerJoin: vi.fn(() => queryBuilder),
-        where: vi.fn(() => queryBuilder),
-        limit: vi.fn(() => queryBuilder),
-        offset: vi.fn(() => Promise.resolve(mockProducts)),
-      };
-      queryBuilder.then = (resolve: any) => resolve([{ count: 1 }]);
-
-      return cb({
-        execute: vi.fn(),
-        select: vi.fn(() => ({
-          from: vi.fn(() => queryBuilder)
-        }))
-      });
-    })
-  }
 }));
 
 // Mock auth middleware to pass freely for the test
@@ -109,10 +81,10 @@ describe('Tenant Resolution Middleware', () => {
     // Override redis mock for this specific test
     vi.mocked(redisClient.get).mockImplementation((key) => {
       if (key === 'tenant:resolve:tenanta') {
-        return Promise.resolve(JSON.stringify({ tenantId: 'tenant_a', schemaName: 'tenant_a', status: 'provisioned' }));
+        return Promise.resolve(JSON.stringify({ tenantId: 'tenant_a', status: 'provisioned' }));
       }
       if (key === 'tenant:resolve:tenantb') {
-        return Promise.resolve(JSON.stringify({ tenantId: 'tenant_b', schemaName: 'tenant_b', status: 'provisioned' }));
+        return Promise.resolve(JSON.stringify({ tenantId: 'tenant_b', status: 'provisioned' }));
       }
       return Promise.resolve(null);
     });

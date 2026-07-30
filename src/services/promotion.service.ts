@@ -1,10 +1,10 @@
-import { withTenantSchema } from '../db/with-tenant-schema';
+import { withTenantDb } from '../db/with-tenant-db';
 import * as schema from '../db/tenant_schema';
 import { eq, desc, sql, and, lte, gte, inArray } from 'drizzle-orm';
 import crypto from 'crypto';
 
 export async function listPromotions(filters: { promotionType?: string; page?: number; limit?: number; outletId?: string }) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const page = filters.page || 1;
     const limit = filters.limit || 20;
     const offset = (page - 1) * limit;
@@ -36,7 +36,7 @@ export async function listPromotions(filters: { promotionType?: string; page?: n
 }
 
 export async function getPromotionById(id: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [promotion] = await tx
       .select()
       .from(schema.promotionPrograms)
@@ -55,7 +55,7 @@ export async function getPromotionById(id: string) {
 }
 
 export async function createPromotion(data: any) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const { outletIds, validFrom, validUntil, ...fields } = data;
 
     if (fields.code) {
@@ -91,7 +91,7 @@ export async function createPromotion(data: any) {
 }
 
 export async function updatePromotion(id: string, data: any) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const { outletIds, validFrom, validUntil, ...fields } = data;
 
     if (fields.code) {
@@ -136,7 +136,7 @@ export async function updatePromotion(id: string, data: any) {
 }
 
 export async function deletePromotion(id: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     await tx.delete(schema.promotionOutlets)
       .where(eq(schema.promotionOutlets.promotionId, id));
     await tx.delete(schema.promotionPrograms)
@@ -145,7 +145,7 @@ export async function deletePromotion(id: string) {
 }
 
 export async function getActivePromotions(outletId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const now = new Date();
 
     const promotions = await tx

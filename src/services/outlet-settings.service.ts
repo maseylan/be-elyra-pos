@@ -1,9 +1,9 @@
-import { withTenantSchema } from '../db/with-tenant-schema';
+import { withTenantDb } from '../db/with-tenant-db';
 import * as schema from '../db/tenant_schema';
 import { eq } from 'drizzle-orm';
 
 export async function resolveEffectiveSettings(outletId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [tenantDefault] = await tx.select().from(schema.tenantSettings).where(eq(schema.tenantSettings.id, 'default'));
     const [override] = await tx.select().from(schema.outletSettings).where(eq(schema.outletSettings.outletId, outletId));
     const [outlet] = await tx.select().from(schema.outlets).where(eq(schema.outlets.id, outletId)).limit(1);
@@ -78,7 +78,7 @@ export async function resolveEffectiveSettings(outletId: string) {
 }
 
 export async function updateOutletSettings(outletId: string, data: Record<string, any>) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const existing = await tx.select().from(schema.outletSettings).where(eq(schema.outletSettings.outletId, outletId));
 
     if (existing.length === 0) {

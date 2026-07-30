@@ -4,7 +4,7 @@ import * as ownerBillingService from '../services/owner-billing.service';
 import * as pdfService from '../services/pdf.service';
 
 const upgradeSchema = z.object({
-  planId: z.string().min(1, 'Plan ID harus diisi'),
+  storageGb: z.number().min(0.1).max(100),
 });
 
 export async function getSubscription(req: Request, res: Response, next: NextFunction) {
@@ -63,8 +63,8 @@ export async function getInvoicePdf(req: Request, res: Response, next: NextFunct
 export async function upgradePlan(req: Request, res: Response, next: NextFunction) {
   try {
     const tenantId = req.auth!.tenantId!;
-    const { planId } = upgradeSchema.parse(req.body);
-    const result = await ownerBillingService.upgradePlan(tenantId, planId);
+    const { storageGb } = upgradeSchema.parse(req.body);
+    const result = await ownerBillingService.upgradePlan(tenantId, storageGb);
     res.json(result);
   } catch (e) { next(e); }
 }

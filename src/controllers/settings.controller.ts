@@ -1,7 +1,9 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import * as settingsService from '../services/settings.service';
 import * as outletSettingsService from '../services/outlet-settings.service';
+import { asyncHandler } from '../utils/asyncHandler';
+import { HttpError } from '../utils/errors';
 
 const settingsSchema = z.object({
   storeName: z.string().min(1).max(100),
@@ -63,47 +65,32 @@ const outletIdParamSchema = z.object({
   outletId: z.string().uuid(),
 });
 
-export const getSettings = async (req: Request, res: Response) => {
-  try {
-    const settings = await settingsService.getTenantSettings();
-    res.json(settings);
-  } catch (error: any) {
-    console.error('Failed to fetch settings', error);
-    res.status(500).json({ error: 'Failed to fetch settings', detail: error?.message });
-  }
-};
+export const getSettings = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const settings = await settingsService.getTenantSettings();
+  res.json(settings);
+});
 
-export const updateSettings = async (req: Request, res: Response) => {
+export const updateSettings = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const parsed = settingsSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
   }
 
-  try {
-    const settings = await settingsService.updateTenantSettings(parsed.data);
-    res.json(settings);
-  } catch (error: any) {
-    console.error('Failed to update settings', error);
-    res.status(500).json({ error: 'Failed to update settings', detail: error?.message });
-  }
-};
+  const settings = await settingsService.updateTenantSettings(parsed.data);
+  res.json(settings);
+});
 
-export const getOutletSettings = async (req: Request, res: Response) => {
+export const getOutletSettings = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const parsedParams = outletIdParamSchema.safeParse(req.params);
   if (!parsedParams.success) {
     return res.status(400).json({ error: 'Invalid outlet id' });
   }
 
-  try {
-    const settings = await outletSettingsService.resolveEffectiveSettings(parsedParams.data.outletId);
-    res.json(settings);
-  } catch (error: any) {
-    console.error('Failed to fetch outlet settings', error);
-    res.status(500).json({ error: 'Failed to fetch outlet settings', detail: error?.message });
-  }
-};
+  const settings = await outletSettingsService.resolveEffectiveSettings(parsedParams.data.outletId);
+  res.json(settings);
+});
 
-export const updateOutletSettings = async (req: Request, res: Response) => {
+export const updateOutletSettings = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const parsedParams = outletIdParamSchema.safeParse(req.params);
   if (!parsedParams.success) {
     return res.status(400).json({ error: 'Invalid outlet id' });
@@ -114,11 +101,6 @@ export const updateOutletSettings = async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
   }
 
-  try {
-    const settings = await outletSettingsService.updateOutletSettings(parsedParams.data.outletId, parsed.data);
-    res.json(settings);
-  } catch (error: any) {
-    console.error('Failed to update outlet settings', error);
-    res.status(500).json({ error: 'Failed to update outlet settings', detail: error?.message });
-  }
-};
+  const settings = await outletSettingsService.updateOutletSettings(parsedParams.data.outletId, parsed.data);
+  res.json(settings);
+});

@@ -20,7 +20,6 @@ vi.mock('../../config/redis', () => ({
 vi.mock('../../contexts/tenant-context', () => ({
   getCurrentTenant: vi.fn().mockReturnValue({
     tenantId: 'tenant_test123',
-    schemaName: 'tenant_test123',
     status: 'provisioned',
     subscriptionType: 'pro',
   }),
@@ -28,7 +27,6 @@ vi.mock('../../contexts/tenant-context', () => ({
     run: vi.fn((data: any, fn: () => void) => fn()),
     getStore: vi.fn().mockReturnValue({
       tenantId: 'tenant_test123',
-      schemaName: 'tenant_test123',
       status: 'provisioned',
       subscriptionType: 'pro',
     }),

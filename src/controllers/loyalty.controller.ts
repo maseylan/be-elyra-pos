@@ -1,7 +1,9 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import * as loyaltyService from '../services/loyalty.service';
 import { getCurrentTenant } from '../contexts/tenant-context';
+import { asyncHandler } from '../utils/asyncHandler';
+import { HttpError } from '../utils/errors';
 
 function p(params: any, key: string): string { return params[key] as string; }
 
@@ -15,27 +17,19 @@ function checkSubscription(res: Response): boolean {
 }
 
 // ----- Programs -----
-export const listPrograms = async (req: Request, res: Response) => {
+export const listPrograms = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
-  try {
-    const programs = await loyaltyService.listPrograms();
-    res.json(programs);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const programs = await loyaltyService.listPrograms();
+  res.json(programs);
+});
 
-export const getProgram = async (req: Request, res: Response) => {
+export const getProgram = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
-  try {
-    const id = p(req.params, 'id');
-    const program = await loyaltyService.getProgram(id);
-    if (!program) return res.status(404).json({ error: 'Program not found' });
-    res.json(program);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const id = p(req.params, 'id');
+  const program = await loyaltyService.getProgram(id);
+  if (!program) return res.status(404).json({ error: 'Program not found' });
+  res.json(program);
+});
 
 const createProgramSchema = z.object({
   name: z.string().min(1),
@@ -44,17 +38,13 @@ const createProgramSchema = z.object({
   unitAmount: z.number().int().positive().default(1000),
 });
 
-export const createProgram = async (req: Request, res: Response) => {
+export const createProgram = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
   const parsed = createProgramSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
-  try {
-    const program = await loyaltyService.createProgram(parsed.data);
-    res.status(201).json(program);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const program = await loyaltyService.createProgram(parsed.data);
+  res.status(201).json(program);
+});
 
 const updateProgramSchema = z.object({
   name: z.string().optional(),
@@ -64,93 +54,65 @@ const updateProgramSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
-export const updateProgram = async (req: Request, res: Response) => {
+export const updateProgram = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
   const parsed = updateProgramSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
-  try {
-    const id = p(req.params, 'id');
-    const program = await loyaltyService.updateProgram(id, parsed.data);
-    res.json(program);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const id = p(req.params, 'id');
+  const program = await loyaltyService.updateProgram(id, parsed.data);
+  res.json(program);
+});
 
-export const deleteProgram = async (req: Request, res: Response) => {
+export const deleteProgram = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
-  try {
-    const id = p(req.params, 'id');
-    await loyaltyService.deleteProgram(id);
-    res.json({ message: 'Program deleted' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const id = p(req.params, 'id');
+  await loyaltyService.deleteProgram(id);
+  res.json({ message: 'Program deleted' });
+});
 
 // ----- Outlet-Program Assignment -----
-export const listProgramOutlets = async (req: Request, res: Response) => {
+export const listProgramOutlets = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
-  try {
-    const id = p(req.params, 'id');
-    const outlets = await loyaltyService.listProgramOutlets(id);
-    res.json(outlets);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const id = p(req.params, 'id');
+  const outlets = await loyaltyService.listProgramOutlets(id);
+  res.json(outlets);
+});
 
 const assignOutletSchema = z.object({
   outletId: z.string().uuid(),
 });
 
-export const assignOutlet = async (req: Request, res: Response) => {
+export const assignOutlet = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
   const parsed = assignOutletSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
-  try {
-    const id = p(req.params, 'id');
-    const result = await loyaltyService.assignOutletToProgram(id, parsed.data.outletId);
-    res.status(201).json(result);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const id = p(req.params, 'id');
+  const result = await loyaltyService.assignOutletToProgram(id, parsed.data.outletId);
+  res.status(201).json(result);
+});
 
-export const removeOutlet = async (req: Request, res: Response) => {
+export const removeOutlet = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
-  try {
-    const id = p(req.params, 'id');
-    const outletId = p(req.params, 'outletId');
-    await loyaltyService.removeOutletFromProgram(id, outletId);
-    res.json({ message: 'Outlet removed from program' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const id = p(req.params, 'id');
+  const outletId = p(req.params, 'outletId');
+  await loyaltyService.removeOutletFromProgram(id, outletId);
+  res.json({ message: 'Outlet removed from program' });
+});
 
-export const getActiveProgramByOutlet = async (req: Request, res: Response) => {
+export const getActiveProgramByOutlet = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
-  try {
-    const outletId = p(req.params, 'outletId');
-    const program = await loyaltyService.getActiveProgramByOutlet(outletId);
-    res.json(program);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const outletId = p(req.params, 'outletId');
+  const program = await loyaltyService.getActiveProgramByOutlet(outletId);
+  res.json(program);
+});
 
 // ----- Rewards -----
-export const listRewards = async (req: Request, res: Response) => {
+export const listRewards = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
-  try {
-    const programId = p(req.params, 'programId');
-    const rewards = await loyaltyService.listRewards(programId);
-    res.json(rewards);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const programId = p(req.params, 'programId');
+  const rewards = await loyaltyService.listRewards(programId);
+  res.json(rewards);
+});
 
 const createRewardSchema = z.object({
   name: z.string().min(1),
@@ -163,51 +125,35 @@ const createRewardSchema = z.object({
   stock: z.number().int().optional(),
 });
 
-export const createReward = async (req: Request, res: Response) => {
+export const createReward = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
   const parsed = createRewardSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
-  try {
-    const programId = p(req.params, 'programId');
-    const reward = await loyaltyService.createReward(programId, parsed.data);
-    res.status(201).json(reward);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const programId = p(req.params, 'programId');
+  const reward = await loyaltyService.createReward(programId, parsed.data);
+  res.status(201).json(reward);
+});
 
-export const updateReward = async (req: Request, res: Response) => {
+export const updateReward = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
-  try {
-    const id = p(req.params, 'id');
-    const reward = await loyaltyService.updateReward(id, req.body);
-    res.json(reward);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const id = p(req.params, 'id');
+  const reward = await loyaltyService.updateReward(id, req.body);
+  res.json(reward);
+});
 
-export const deleteReward = async (req: Request, res: Response) => {
+export const deleteReward = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
-  try {
-    const id = p(req.params, 'id');
-    await loyaltyService.deleteReward(id);
-    res.json({ message: 'Reward deleted' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const id = p(req.params, 'id');
+  await loyaltyService.deleteReward(id);
+  res.json({ message: 'Reward deleted' });
+});
 
 // ----- Coupons -----
-export const listCoupons = async (req: Request, res: Response) => {
+export const listCoupons = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
-  try {
-    const coupons = await loyaltyService.listCoupons();
-    res.json(coupons);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const coupons = await loyaltyService.listCoupons();
+  res.json(coupons);
+});
 
 const createCouponSchema = z.object({
   programId: z.string().uuid().optional(),
@@ -224,7 +170,7 @@ const createCouponSchema = z.object({
   memberId: z.string().uuid().optional(),
 });
 
-export const createCoupon = async (req: Request, res: Response) => {
+export const createCoupon = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
   const parsed = createCouponSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
@@ -232,32 +178,24 @@ export const createCoupon = async (req: Request, res: Response) => {
     const coupon = await loyaltyService.createCoupon(parsed.data);
     res.status(201).json(coupon);
   } catch (error: any) {
-    if (error.message?.includes('unique')) return res.status(409).json({ error: 'Coupon code already exists' });
-    res.status(500).json({ error: error.message });
+    if (error.message?.includes('unique')) throw new HttpError(409, 'Coupon code already exists');
+    throw error;
   }
-};
+});
 
-export const updateCoupon = async (req: Request, res: Response) => {
+export const updateCoupon = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
-  try {
-    const id = p(req.params, 'id');
-    const coupon = await loyaltyService.updateCoupon(id, req.body);
-    res.json(coupon);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const id = p(req.params, 'id');
+  const coupon = await loyaltyService.updateCoupon(id, req.body);
+  res.json(coupon);
+});
 
-export const deleteCoupon = async (req: Request, res: Response) => {
+export const deleteCoupon = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
-  try {
-    const id = p(req.params, 'id');
-    await loyaltyService.deleteCoupon(id);
-    res.json({ message: 'Coupon deleted' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const id = p(req.params, 'id');
+  await loyaltyService.deleteCoupon(id);
+  res.json({ message: 'Coupon deleted' });
+});
 
 const validateCouponSchema = z.object({
   code: z.string().min(1),
@@ -265,7 +203,7 @@ const validateCouponSchema = z.object({
   memberId: z.string().uuid().optional(),
 });
 
-export const validateCouponHandler = async (req: Request, res: Response) => {
+export const validateCouponHandler = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
   const parsed = validateCouponSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
@@ -284,11 +222,11 @@ export const validateCouponHandler = async (req: Request, res: Response) => {
     const key = error.message?.split(':')[0];
     if (error.message?.startsWith('COUPON_MIN_PURCHASE:')) {
       const min = error.message.split(':')[1];
-      return res.status(400).json({ error: `Minimal pembelian Rp ${Number(min).toLocaleString('id-ID')}` });
+      throw new HttpError(400, `Minimal pembelian Rp ${Number(min).toLocaleString('id-ID')}`);
     }
-    res.status(400).json({ error: msgs[key] || 'Kode promo tidak valid' });
+    throw new HttpError(400, msgs[key] || 'Kode promo tidak valid');
   }
-};
+});
 
 // ----- Members -----
 const lookupMemberSchema = z.object({
@@ -297,55 +235,39 @@ const lookupMemberSchema = z.object({
   email: z.string().optional(),
 });
 
-export const lookupMember = async (req: Request, res: Response) => {
+export const lookupMember = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
   const parsed = lookupMemberSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
-  try {
-    const existing = await loyaltyService.findMemberByPhone(parsed.data.phone);
-    if (existing) return res.json({ member: existing.member, customer: existing.customer, isNew: false });
+  const existing = await loyaltyService.findMemberByPhone(parsed.data.phone);
+  if (existing) return res.json({ member: existing.member, customer: existing.customer, isNew: false });
 
-    const customer = await loyaltyService.findOrCreateCustomer(parsed.data);
-    const member = await loyaltyService.getOrCreateMember(customer.id);
-    res.json({ member, customer, isNew: true });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const customer = await loyaltyService.findOrCreateCustomer(parsed.data);
+  const member = await loyaltyService.getOrCreateMember(customer.id);
+  res.json({ member, customer, isNew: true });
+});
 
-export const listMembers = async (req: Request, res: Response) => {
+export const listMembers = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
-  try {
-    const search = req.query.search as string | undefined;
-    const members = await loyaltyService.listMembers(search);
-    res.json(members);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const search = req.query.search as string | undefined;
+  const members = await loyaltyService.listMembers(search);
+  res.json(members);
+});
 
-export const getMemberDetail = async (req: Request, res: Response) => {
+export const getMemberDetail = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
-  try {
-    const id = p(req.params, 'id');
-    const detail = await loyaltyService.getMemberDetail(id);
-    if (!detail) return res.status(404).json({ error: 'Member not found' });
-    res.json(detail);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const id = p(req.params, 'id');
+  const detail = await loyaltyService.getMemberDetail(id);
+  if (!detail) return res.status(404).json({ error: 'Member not found' });
+  res.json(detail);
+});
 
-export const getRedeemableRewards = async (req: Request, res: Response) => {
+export const getRedeemableRewards = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
-  try {
-    const memberId = p(req.params, 'memberId');
-    const rewards = await loyaltyService.getRedeemableRewards(memberId);
-    res.json(rewards);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const memberId = p(req.params, 'memberId');
+  const rewards = await loyaltyService.getRedeemableRewards(memberId);
+  res.json(rewards);
+});
 
 // ----- Cashier: Earn Points on Order Completion -----
 const earnPointsSchema = z.object({
@@ -354,26 +276,22 @@ const earnPointsSchema = z.object({
   subtotal: z.number().min(0),
 });
 
-export const earnPointsHandler = async (req: Request, res: Response) => {
+export const earnPointsHandler = asyncHandler(async (req: Request, res: Response) => {
   if (!checkSubscription(res)) return;
   const parsed = earnPointsSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
-  try {
-    const outletId = (req as any).outletId;
-    if (!outletId) return res.status(400).json({ error: 'Outlet context required' });
+  const outletId = (req as any).outletId;
+  if (!outletId) return res.status(400).json({ error: 'Outlet context required' });
 
-    const program = await loyaltyService.getProgram(parsed.data.programId);
-    if (!program) return res.status(404).json({ error: 'Program not found' });
+  const program = await loyaltyService.getProgram(parsed.data.programId);
+  if (!program) return res.status(404).json({ error: 'Program not found' });
 
-    const orderId = p(req.params, 'orderId');
-    const points = await loyaltyService.calculateEarnedPoints(parsed.data.subtotal, program);
+  const orderId = p(req.params, 'orderId');
+  const points = await loyaltyService.calculateEarnedPoints(parsed.data.subtotal, program);
 
-    const expiresAt = new Date();
-    expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+  const expiresAt = new Date();
+  expiresAt.setFullYear(expiresAt.getFullYear() + 1);
 
-    const txn = await loyaltyService.earnPoints(parsed.data.memberId, parsed.data.programId, outletId, orderId, points, expiresAt);
-    res.status(201).json({ points, transaction: txn });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
+  const txn = await loyaltyService.earnPoints(parsed.data.memberId, parsed.data.programId, outletId, orderId, points, expiresAt);
+  res.status(201).json({ points, transaction: txn });
+});

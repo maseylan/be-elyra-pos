@@ -1,6 +1,8 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import * as tableService from '../services/table.service';
+import { asyncHandler } from '../utils/asyncHandler';
+import { HttpError } from '../utils/errors';
 
 const createSchema = z.object({
   floorPlanId: z.string().uuid(),
@@ -38,76 +40,52 @@ const bulkPositionsSchema = z.object({
   })).min(1),
 });
 
-export const listTables = async (req: Request, res: Response) => {
+export const listTables = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const floorPlanId = req.query.floorPlanId as string;
   if (!floorPlanId) return res.status(400).json({ error: 'floorPlanId query required' });
-  try {
-    const tables = await tableService.listTables(floorPlanId);
-    res.json(tables);
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to list tables', detail: error?.message });
-  }
-};
+  const tables = await tableService.listTables(floorPlanId);
+  res.json(tables);
+});
 
-export const createTable = async (req: Request, res: Response) => {
+export const createTable = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
-  try {
-    const table = await tableService.createTable(parsed.data);
-    res.status(201).json(table);
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to create table', detail: error?.message });
-  }
-};
+  const table = await tableService.createTable(parsed.data);
+  res.status(201).json(table);
+});
 
-export const updateTable = async (req: Request, res: Response) => {
+export const updateTable = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const [params, body] = await Promise.all([
     paramSchema.safeParseAsync(req.params),
     updateSchema.safeParseAsync(req.body),
   ]);
   if (!params.success) return res.status(400).json({ error: 'Invalid id' });
   if (!body.success) return res.status(400).json({ error: 'Invalid payload', details: body.error.flatten() });
-  try {
-    const table = await tableService.updateTable(params.data.id, body.data);
-    res.json(table);
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to update table', detail: error?.message });
-  }
-};
+  const table = await tableService.updateTable(params.data.id, body.data);
+  res.json(table);
+});
 
-export const deleteTable = async (req: Request, res: Response) => {
+export const deleteTable = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const params = paramSchema.safeParse(req.params);
   if (!params.success) return res.status(400).json({ error: 'Invalid id' });
-  try {
-    await tableService.deleteTable(params.data.id);
-    res.json({ success: true });
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to delete table', detail: error?.message });
-  }
-};
+  await tableService.deleteTable(params.data.id);
+  res.json({ success: true });
+});
 
-export const updateTableStatus = async (req: Request, res: Response) => {
+export const updateTableStatus = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const [params, body] = await Promise.all([
     paramSchema.safeParseAsync(req.params),
     statusSchema.safeParseAsync(req.body),
   ]);
   if (!params.success) return res.status(400).json({ error: 'Invalid id' });
   if (!body.success) return res.status(400).json({ error: 'Invalid status' });
-  try {
-    const table = await tableService.updateTableStatus(params.data.id, body.data.status);
-    res.json(table);
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to update table status', detail: error?.message });
-  }
-};
+  const table = await tableService.updateTableStatus(params.data.id, body.data.status);
+  res.json(table);
+});
 
-export const bulkUpdatePositions = async (req: Request, res: Response) => {
+export const bulkUpdatePositions = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const parsed = bulkPositionsSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
-  try {
-    await tableService.bulkUpdatePositions(parsed.data.updates);
-    res.json({ success: true });
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to bulk update positions', detail: error?.message });
-  }
-};
+  await tableService.bulkUpdatePositions(parsed.data.updates);
+  res.json({ success: true });
+});

@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, numeric, integer, uuid, varchar, decimal, jsonb, pgEnum, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, boolean, numeric, integer, uuid, varchar, decimal, jsonb, pgEnum, uniqueIndex, index } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 
@@ -200,13 +200,14 @@ export const outletProducts = pgTable('outlet_products', {
 export const stockMovements = pgTable('stock_movements', {
   id: uuid('id').primaryKey().defaultRandom(),
   outletId: uuid('outlet_id').notNull().references(() => outlets.id),
-  productId: uuid('product_id').notNull(),
+  productId: uuid('product_id').notNull().references(() => products.id),
   variantId: uuid('variant_id').references(() => productVariants.id, { onDelete: 'cascade' }),
   type: stockMovementTypeEnum('type').notNull(),
   quantityChange: integer('quantity_change').notNull(),
   stockAfter: integer('stock_after').notNull(),
   referenceId: uuid('reference_id'),
   note: varchar('note', { length: 255 }),
+  reason: varchar('reason', { length: 255 }),
   createdBy: uuid('created_by'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
@@ -307,8 +308,8 @@ export const cashierSessions = pgTable('cashier_sessions', {
 // Orders & Items
 export const orders = pgTable('orders', {
   id: uuid('id').primaryKey().defaultRandom(),
-  idempotencyKey: text('idempotency_key').unique().notNull(), // CRITICAL for offline sync
-  outletId: uuid('outlet_id').notNull().references(() => outlets.id),
+  idempotencyKey: text('idempotency_key').unique().notNull(),
+  outletId: uuid('outlet_id').notNull().references(() => outlets.id, { onDelete: 'restrict' }),
   sessionId: uuid('session_id').references(() => cashierSessions.id, { onDelete: 'restrict' }),
   subtotal: numeric('subtotal').notNull(),
   taxAmount: numeric('tax_amount').notNull().default('0'),
@@ -318,22 +319,24 @@ export const orders = pgTable('orders', {
   amountPaid: numeric('amount_paid').notNull(),
   changeAmount: numeric('change_amount').notNull(),
   tableNumber: varchar('table_number', { length: 10 }),
-  cashierId: uuid('cashier_id').references(() => users.id),
+  cashierId: uuid('cashier_id').references(() => users.id, { onDelete: 'set null' }),
   cashierName: text('cashier_name'),
   orderNumber: varchar('order_number', { length: 50 }),
   roundingAmount: numeric('rounding_amount').notNull().default('0'),
-  status: text('status').notNull(), // 'completed', 'refunded', 'void'
+  status: text('status').notNull(),
   memberId: uuid('member_id').references(() => loyaltyMembers.id, { onDelete: 'set null' }),
   couponId: uuid('coupon_id').references(() => loyaltyCoupons.id, { onDelete: 'set null' }),
   redeemedRewardId: uuid('redeemed_reward_id').references(() => loyaltyRewards.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => ({
+  orderNumberUnique: uniqueIndex('idx_orders_outlet_order_number').on(table.outletId, table.orderNumber),
+}));
 
 export const orderItems = pgTable('order_items', {
   id: uuid('id').primaryKey().defaultRandom(),
-  orderId: uuid('order_id').notNull().references(() => orders.id),
-  productId: uuid('product_id').notNull().references(() => products.id),
+  orderId: uuid('order_id').notNull().references(() => orders.id, { onDelete: 'cascade' }),
+  productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'restrict' }),
   productName: varchar('product_name', { length: 255 }),
   quantity: integer('quantity').notNull(),
   price: numeric('price').notNull(),
@@ -439,7 +442,7 @@ export const loyaltyRewardRedemptions = pgTable('loyalty_reward_redemptions', {
   rewardId: uuid('reward_id').notNull().references(() => loyaltyRewards.id, { onDelete: 'cascade' }),
   memberId: uuid('member_id').notNull().references(() => loyaltyMembers.id, { onDelete: 'cascade' }),
   orderId: uuid('order_id').references(() => orders.id, { onDelete: 'set null' }),
-  programId: uuid('program_id').notNull(),
+  programId: uuid('program_id').notNull().references(() => loyaltyPrograms.id),
   pointsCost: integer('points_cost').notNull(),
   status: varchar('status', { length: 20 }).notNull().default('pending'),
   claimedAt: timestamp('claimed_at'),
@@ -480,11 +483,13 @@ export const refreshTokens = pgTable('refresh_tokens', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   tokenHash: text('token_hash').notNull(),
+  previousTokenHash: text('previous_token_hash'),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   userUnique: uniqueIndex('refresh_tokens_user_id_unique').on(table.userId),
   tokenHashIdx: uniqueIndex('idx_refresh_tokens_token_hash').on(table.tokenHash),
+  previousTokenHashIdx: index('idx_refresh_tokens_previous_hash').on(table.previousTokenHash),
 }));
 
 export const loyaltyPointsTransactions = pgTable('loyalty_points_transactions', {

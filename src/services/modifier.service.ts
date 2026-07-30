@@ -1,4 +1,4 @@
-import { withTenantSchema } from '../db/with-tenant-schema';
+import { withTenantDb } from '../db/with-tenant-db';
 import * as schema from '../db/tenant_schema';
 import { eq, and } from 'drizzle-orm';
 import crypto from 'crypto';
@@ -22,7 +22,7 @@ export interface UpsertOutletModifierInput {
 }
 
 export async function createModifierGroup(productId: string, input: CreateModifierGroupInput) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const id = crypto.randomUUID();
     const selectionType = input.selectionType ?? 'single';
 
@@ -41,7 +41,7 @@ export async function createModifierGroup(productId: string, input: CreateModifi
 }
 
 export async function getModifierGroupsByProduct(productId: string, outletId?: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const groups = await tx.select()
       .from(schema.modifierGroups)
       .where(eq(schema.modifierGroups.productId, productId));
@@ -88,7 +88,7 @@ export async function getModifierGroupsByProduct(productId: string, outletId?: s
 }
 
 export async function createModifier(groupId: string, input: CreateModifierInput) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const id = crypto.randomUUID();
     await tx.insert(schema.modifiers).values({
       id,
@@ -102,7 +102,7 @@ export async function createModifier(groupId: string, input: CreateModifierInput
 }
 
 export async function updateModifierGroup(groupId: string, input: Partial<CreateModifierGroupInput>) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const updates: any = {};
     if (input.name !== undefined) updates.name = input.name;
     if (input.selectionType !== undefined) updates.selectionType = input.selectionType;
@@ -119,7 +119,7 @@ export async function updateModifierGroup(groupId: string, input: Partial<Create
 }
 
 export async function updateModifier(modifierId: string, input: { name?: string; priceAdjustment?: number; isActive?: boolean }) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const updates: any = {};
     if (input.name !== undefined) updates.name = input.name;
     if (input.priceAdjustment !== undefined) updates.priceAdjustment = String(input.priceAdjustment);
@@ -134,7 +134,7 @@ export async function updateModifier(modifierId: string, input: { name?: string;
 }
 
 export async function softDeleteModifier(modifierId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     await tx.update(schema.modifiers)
       .set({ isActive: false })
       .where(eq(schema.modifiers.id, modifierId));
@@ -143,7 +143,7 @@ export async function softDeleteModifier(modifierId: string) {
 }
 
 export async function upsertOutletModifier(outletId: string, modifierId: string, input: UpsertOutletModifierInput) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const existing = await tx.select()
       .from(schema.outletModifiers)
       .where(and(

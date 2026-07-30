@@ -1,73 +1,46 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import * as modifierService from '../services/modifier.service';
+import { asyncHandler } from '../utils/asyncHandler';
 
-export async function createModifierGroup(req: Request, res: Response) {
-  try {
-    const { productId } = req.params as any;
-    const group = await modifierService.createModifierGroup(productId, req.body);
-    res.status(201).json(group);
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Failed to create modifier group' });
-  }
-}
+export const createModifierGroup = asyncHandler(async (req: Request, res: Response) => {
+  const { productId } = req.params as any;
+  const group = await modifierService.createModifierGroup(productId, req.body);
+  res.status(201).json(group);
+});
 
-export async function getModifierGroups(req: Request, res: Response) {
-  try {
-    const { productId } = req.params as any;
-    const outletId = req.query.outletId as string | undefined;
-    const groups = await modifierService.getModifierGroupsByProduct(productId, outletId);
-    res.json(groups);
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Failed to fetch modifier groups' });
-  }
-}
+export const getModifierGroups = asyncHandler(async (req: Request, res: Response) => {
+  const { productId } = req.params as any;
+  const outletId = req.query.outletId as string | undefined;
+  const groups = await modifierService.getModifierGroupsByProduct(productId, outletId);
+  res.json(groups);
+});
 
-export async function createModifier(req: Request, res: Response) {
-  try {
-    const { groupId } = req.params as any;
-    const modifier = await modifierService.createModifier(groupId, req.body);
-    res.status(201).json(modifier);
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Failed to create modifier' });
-  }
-}
+export const createModifier = asyncHandler(async (req: Request, res: Response) => {
+  const { groupId } = req.params as any;
+  const modifier = await modifierService.createModifier(groupId, req.body);
+  res.status(201).json(modifier);
+});
 
-export async function updateModifierGroup(req: Request, res: Response) {
-  try {
-    const { groupId } = req.params as any;
-    const updated = await modifierService.updateModifierGroup(groupId, req.body);
-    res.json(updated);
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Failed to update modifier group' });
-  }
-}
+export const updateModifierGroup = asyncHandler(async (req: Request, res: Response) => {
+  const { groupId } = req.params as any;
+  const updated = await modifierService.updateModifierGroup(groupId, req.body);
+  res.json(updated);
+});
 
-export async function updateModifier(req: Request, res: Response) {
-  try {
-    const { modifierId } = req.params as any;
-    const updated = await modifierService.updateModifier(modifierId, req.body);
-    res.json(updated);
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Failed to update modifier' });
-  }
-}
+export const updateModifier = asyncHandler(async (req: Request, res: Response) => {
+  const { modifierId } = req.params as any;
+  const updated = await modifierService.updateModifier(modifierId, req.body);
+  res.json(updated);
+});
 
-export async function deleteModifier(req: Request, res: Response) {
-  try {
-    const { modifierId } = req.params as any;
-    await modifierService.softDeleteModifier(modifierId);
-    res.json({ message: 'Modifier deactivated successfully' });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Failed to delete modifier' });
-  }
-}
+export const deleteModifier = asyncHandler(async (req: Request, res: Response) => {
+  const { modifierId } = req.params as any;
+  await modifierService.softDeleteModifier(modifierId);
+  res.json({ message: 'Modifier deactivated successfully' });
+});
 
-export async function updateOutletModifier(req: Request, res: Response) {
-  try {
-    const { outletId, modifierId } = req.params as any;
-    const updated = await modifierService.upsertOutletModifier(outletId, modifierId, req.body);
-    res.json(updated);
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Failed to update outlet modifier' });
-  }
-}
+export const updateOutletModifier = asyncHandler(async (req: Request, res: Response) => {
+  const { outletId, modifierId } = req.params as any;
+  const updated = await modifierService.upsertOutletModifier(outletId, modifierId, req.body);
+  res.json(updated);
+});

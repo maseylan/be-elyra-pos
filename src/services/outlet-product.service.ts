@@ -1,4 +1,4 @@
-import { withTenantSchema } from '../db/with-tenant-schema';
+import { withTenantDb } from '../db/with-tenant-db';
 import * as schema from '../db/tenant_schema';
 import { eq, and, sql, or, isNull, inArray } from 'drizzle-orm';
 import crypto from 'crypto';
@@ -21,7 +21,7 @@ export async function listProductsForOutlet(outletId: string, params?: { page?: 
   const offset = (page - 1) * limit;
   const st = (params?.status || 'ACTIVE').toUpperCase();
 
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const outletFilter = or(
       eq(schema.outletProducts.isAvailable, true),
       and(isNull(schema.outletProducts.isAvailable), eq(schema.products.isGlobal, true))

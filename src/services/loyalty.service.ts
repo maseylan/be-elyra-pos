@@ -1,24 +1,24 @@
-import { withTenantSchema } from '../db/with-tenant-schema';
+import { withTenantDb } from '../db/with-tenant-db';
 import * as schema from '../db/tenant_schema';
 import { eq, and, sql, desc, lte, gte, or, isNull } from 'drizzle-orm';
 import crypto from 'crypto';
 
 // ----- Loyalty Programs -----
 export async function listPrograms() {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     return await tx.select().from(schema.loyaltyPrograms).orderBy(desc(schema.loyaltyPrograms.createdAt));
   });
 }
 
 export async function getProgram(id: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [program] = await tx.select().from(schema.loyaltyPrograms).where(eq(schema.loyaltyPrograms.id, id)).limit(1);
     return program || null;
   });
 }
 
 export async function createProgram(data: { name: string; description?: string; pointsPerUnit?: number; unitAmount?: number }) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [program] = await tx.insert(schema.loyaltyPrograms).values({
       id: crypto.randomUUID(),
       name: data.name,
@@ -31,21 +31,21 @@ export async function createProgram(data: { name: string; description?: string; 
 }
 
 export async function updateProgram(id: string, data: { name?: string; description?: string; pointsPerUnit?: number; unitAmount?: number; isActive?: boolean }) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [program] = await tx.update(schema.loyaltyPrograms).set({ ...data, updatedAt: new Date() }).where(eq(schema.loyaltyPrograms.id, id)).returning();
     return program;
   });
 }
 
 export async function deleteProgram(id: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     await tx.delete(schema.loyaltyPrograms).where(eq(schema.loyaltyPrograms.id, id));
   });
 }
 
 // ----- Outlet-Program Assignment -----
 export async function listProgramOutlets(programId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     return await tx.select().from(schema.outletLoyaltyPrograms)
       .leftJoin(schema.outlets, eq(schema.outletLoyaltyPrograms.outletId, schema.outlets.id))
       .where(eq(schema.outletLoyaltyPrograms.programId, programId));
@@ -53,7 +53,7 @@ export async function listProgramOutlets(programId: string) {
 }
 
 export async function assignOutletToProgram(programId: string, outletId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [assignment] = await tx.insert(schema.outletLoyaltyPrograms).values({
       id: crypto.randomUUID(),
       outletId,
@@ -64,7 +64,7 @@ export async function assignOutletToProgram(programId: string, outletId: string)
 }
 
 export async function removeOutletFromProgram(programId: string, outletId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     await tx.delete(schema.outletLoyaltyPrograms).where(
       and(eq(schema.outletLoyaltyPrograms.programId, programId), eq(schema.outletLoyaltyPrograms.outletId, outletId))
     );
@@ -72,7 +72,7 @@ export async function removeOutletFromProgram(programId: string, outletId: strin
 }
 
 export async function getActiveProgramByOutlet(outletId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const result = await tx.select().from(schema.outletLoyaltyPrograms)
       .innerJoin(schema.loyaltyPrograms, eq(schema.outletLoyaltyPrograms.programId, schema.loyaltyPrograms.id))
       .where(and(
@@ -87,7 +87,7 @@ export async function getActiveProgramByOutlet(outletId: string) {
 
 // ----- Rewards -----
 export async function listRewards(programId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     return await tx.select().from(schema.loyaltyRewards)
       .where(eq(schema.loyaltyRewards.programId, programId))
       .orderBy(schema.loyaltyRewards.createdAt);
@@ -98,7 +98,7 @@ export async function createReward(programId: string, data: {
   name: string; description?: string; type: string; pointsCost: number;
   value: number; maxDiscount?: number; productId?: string; stock?: number;
 }) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [reward] = await tx.insert(schema.loyaltyRewards).values({
       id: crypto.randomUUID(),
       programId,
@@ -116,7 +116,7 @@ export async function createReward(programId: string, data: {
 }
 
 export async function updateReward(id: string, data: any) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const updateData: any = { ...data, updatedAt: new Date() };
     if (data.value) updateData.value = String(data.value);
     if (data.maxDiscount) updateData.maxDiscount = String(data.maxDiscount);
@@ -127,14 +127,14 @@ export async function updateReward(id: string, data: any) {
 }
 
 export async function deleteReward(id: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     await tx.delete(schema.loyaltyRewards).where(eq(schema.loyaltyRewards.id, id));
   });
 }
 
 // ----- Coupons -----
 export async function listCoupons() {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     return await tx.select().from(schema.loyaltyCoupons).orderBy(desc(schema.loyaltyCoupons.createdAt));
   });
 }
@@ -145,7 +145,7 @@ export async function createCoupon(data: {
   usageLimit?: number; validFrom?: string; validUntil?: string;
   isSingleUse?: boolean; memberId?: string;
 }) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [coupon] = await tx.insert(schema.loyaltyCoupons).values({
       id: crypto.randomUUID(),
       programId: data.programId || null,
@@ -166,7 +166,7 @@ export async function createCoupon(data: {
 }
 
 export async function updateCoupon(id: string, data: any) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const updateData: any = { ...data, updatedAt: new Date() };
     if (data.value) updateData.value = String(data.value);
     if (data.maxDiscount) updateData.maxDiscount = String(data.maxDiscount);
@@ -180,13 +180,13 @@ export async function updateCoupon(id: string, data: any) {
 }
 
 export async function deleteCoupon(id: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     await tx.delete(schema.loyaltyCoupons).where(eq(schema.loyaltyCoupons.id, id));
   });
 }
 
 export async function validateCoupon(code: string, subtotal: number, memberId?: string, outletId?: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [coupon] = await tx.select().from(schema.loyaltyCoupons)
       .where(eq(schema.loyaltyCoupons.code, code.toUpperCase())).limit(1);
 
@@ -225,7 +225,7 @@ export async function validateCoupon(code: string, subtotal: number, memberId?: 
 
 // ----- Customers / Members -----
 export async function findOrCreateCustomer(data: { name?: string; phone: string; email?: string }) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     let [customer] = await tx.select().from(schema.customers).where(eq(schema.customers.phone, data.phone)).limit(1);
     if (!customer) {
       [customer] = await tx.insert(schema.customers).values({
@@ -240,7 +240,7 @@ export async function findOrCreateCustomer(data: { name?: string; phone: string;
 }
 
 export async function getOrCreateMember(customerId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     let [member] = await tx.select().from(schema.loyaltyMembers)
       .where(eq(schema.loyaltyMembers.customerId, customerId)).limit(1);
     if (!member) {
@@ -254,7 +254,7 @@ export async function getOrCreateMember(customerId: string) {
 }
 
 export async function findMemberByPhone(phone: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const result = await tx.select().from(schema.loyaltyMembers)
       .innerJoin(schema.customers, eq(schema.loyaltyMembers.customerId, schema.customers.id))
       .where(eq(schema.customers.phone, phone))
@@ -265,7 +265,7 @@ export async function findMemberByPhone(phone: string) {
 }
 
 export async function listMembers(search?: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     let query = tx.select().from(schema.loyaltyMembers)
       .innerJoin(schema.customers, eq(schema.loyaltyMembers.customerId, schema.customers.id));
 
@@ -283,7 +283,7 @@ export async function listMembers(search?: string) {
 }
 
 export async function getMemberDetail(memberId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [result] = await tx.select().from(schema.loyaltyMembers)
       .innerJoin(schema.customers, eq(schema.loyaltyMembers.customerId, schema.customers.id))
       .where(eq(schema.loyaltyMembers.id, memberId))
@@ -315,7 +315,7 @@ export async function getMemberDetail(memberId: string) {
 }
 
 export async function getRedeemableRewards(memberId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const programs = await tx.select({
       programId: schema.loyaltyMemberPrograms.programId,
     }).from(schema.loyaltyMemberPrograms)
@@ -356,7 +356,7 @@ export async function getRedeemableRewards(memberId: string) {
 
 // ----- Points -----
 export async function earnPoints(memberId: string, programId: string, outletId: string, orderId: string, points: number, expiresAt?: Date) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [txn] = await tx.insert(schema.loyaltyPointsTransactions).values({
       id: crypto.randomUUID(),
       memberId,
@@ -372,7 +372,7 @@ export async function earnPoints(memberId: string, programId: string, outletId: 
 }
 
 export async function redeemPoints(memberId: string, reward: any, orderId: string, outletId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const now = new Date();
 
     const [txn] = await tx.insert(schema.loyaltyPointsTransactions).values({
@@ -408,7 +408,7 @@ export async function redeemPoints(memberId: string, reward: any, orderId: strin
 }
 
 export async function recordCouponUsage(orderId: string, couponId: string, discountAmount: number, memberId?: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     await tx.insert(schema.loyaltyCouponUsages).values({
       id: crypto.randomUUID(),
       couponId,
@@ -424,7 +424,7 @@ export async function recordCouponUsage(orderId: string, couponId: string, disco
 }
 
 export async function getMemberPointsByProgram(memberId: string, programId: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [result] = await tx.select({
       totalPoints: sql<number>`COALESCE(SUM(${schema.loyaltyPointsTransactions.points}), 0)`,
     }).from(schema.loyaltyPointsTransactions)

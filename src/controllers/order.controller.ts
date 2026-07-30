@@ -1,6 +1,12 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import * as orderService from '../services/order.service';
+import { asyncHandler } from '../utils/asyncHandler';
+import { HttpError } from '../utils/errors';
+// import { sendInvoice, InvoiceData } from '../services/email.service';
+// import { withTenantDb } from '../db/with-tenant-db';
+// import * as tenantSchema from '../db/tenant_schema';
+// import { eq, and } from 'drizzle-orm';
 
 const createOrderSchema = z.object({
   idempotencyKey: z.string().min(1),
@@ -57,7 +63,7 @@ const refundSchema = z.object({
   refundedBy: z.string().optional(),
 });
 
-export const createOrder = async (req: Request, res: Response) => {
+export const createOrder = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const parsed = createOrderSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten() });
@@ -68,7 +74,6 @@ export const createOrder = async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Outlet context required' });
   }
 
-  // Extract current authenticated user
   const authUserId = req.auth?.userId || req.user?.userId || (req.user as any)?.id;
   const authUserName = req.auth?.name || (req.user as any)?.name || req.auth?.email || 'Kasir';
 
@@ -82,15 +87,12 @@ export const createOrder = async (req: Request, res: Response) => {
     const order = await orderService.createOrder(outletId, payload);
     res.status(201).json(order);
   } catch (error: any) {
-    if (error?.message?.includes('idempotency_key')) {
-      return res.status(409).json({ error: 'Order with this idempotency key already exists' });
-    }
-    console.error('Failed to create order', error);
-    res.status(500).json({ error: 'Failed to create order', detail: error?.message });
+    if (error?.message?.includes('idempotency_key')) throw new HttpError(409, error.message);
+    throw error;
   }
-};
+});
 
-export const listOrders = async (req: Request, res: Response) => {
+export const listOrders = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const query = listQuerySchema.safeParse(req.query);
   if (!query.success) {
     return res.status(400).json({ error: 'Invalid query', details: query.error.flatten() });
@@ -105,16 +107,11 @@ export const listOrders = async (req: Request, res: Response) => {
     targetOutletId = (req as any).outletId;
   }
 
-  try {
-    const result = await orderService.listOrders({ ...query.data, outletId: targetOutletId });
-    res.json(result);
-  } catch (error: any) {
-    console.error('Failed to list orders', error);
-    res.status(500).json({ error: 'Failed to list orders', detail: error?.message });
-  }
-};
+  const result = await orderService.listOrders({ ...query.data, outletId: targetOutletId });
+  res.json(result);
+});
 
-export const getOrder = async (req: Request, res: Response) => {
+export const getOrder = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const params = paramSchema.safeParse(req.params);
   if (!params.success) {
     return res.status(400).json({ error: 'Invalid order id' });
@@ -122,19 +119,14 @@ export const getOrder = async (req: Request, res: Response) => {
 
   const outletId = (req as any).outletId;
 
-  try {
-    const order = await orderService.getOrderById(params.data.id, outletId);
-    if (!order) {
-      return res.status(404).json({ error: 'Order not found' });
-    }
-    res.json(order);
-  } catch (error: any) {
-    console.error('Failed to get order', error);
-    res.status(500).json({ error: 'Failed to get order', detail: error?.message });
+  const order = await orderService.getOrderById(params.data.id, outletId);
+  if (!order) {
+    return res.status(404).json({ error: 'Order not found' });
   }
-};
+  res.json(order);
+});
 
-export const getOrderSummary = async (req: Request, res: Response) => {
+export const getOrderSummary = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const query = summaryQuerySchema.safeParse(req.query);
   if (!query.success) {
     return res.status(400).json({ error: 'Invalid query', details: query.error.flatten() });
@@ -149,16 +141,59 @@ export const getOrderSummary = async (req: Request, res: Response) => {
     targetOutletId = (req as any).outletId;
   }
 
-  try {
-    const result = await orderService.getOrderSummary({ ...query.data, outletId: targetOutletId });
-    res.json(result);
-  } catch (error: any) {
-    console.error('Failed to get order summary', error);
-    res.status(500).json({ error: 'Failed to get order summary', detail: error?.message });
-  }
-};
+  const result = await orderService.getOrderSummary({ ...query.data, outletId: targetOutletId });
+  res.json(result);
+});
 
-export const refundOrder = async (req: Request, res: Response) => {
+/* ponytail: invoice email, enable when needed
+async function sendInvoiceEmail(order: any, outletId: string, input: any) {
+  if (!order.memberId) return;
+  const customerEmail = await withTenantDb(async (tx) => {
+    const [member] = await tx
+      .select({ customerId: tenantSchema.loyaltyMembers.customerId })
+      .from(tenantSchema.loyaltyMembers)
+      .where(eq(tenantSchema.loyaltyMembers.id, order.memberId))
+      .limit(1);
+    if (!member) return null;
+    const [customer] = await tx
+      .select({ email: tenantSchema.customers.email })
+      .from(tenantSchema.customers)
+      .where(eq(tenantSchema.customers.id, member.customerId))
+      .limit(1);
+    return customer?.email || null;
+  });
+  if (!customerEmail) return;
+
+  const [outlet] = await withTenantDb(async (tx) =>
+    tx.select({ name: tenantSchema.outlets.name, address: tenantSchema.outlets.address })
+      .from(tenantSchema.outlets)
+      .where(eq(tenantSchema.outlets.id, outletId))
+      .limit(1)
+  );
+
+  const data: InvoiceData = {
+    orderNumber: order.orderNumber || order.id,
+    outletName: outlet?.name || 'Outlet',
+    outletAddress: outlet?.address || '',
+    date: order.createdAt || new Date(),
+    items: input.items.map((it: any) => ({
+      name: it.productName || 'Item',
+      qty: it.quantity,
+      price: it.price,
+    })),
+    subtotal: input.subtotal,
+    tax: input.taxAmount,
+    discount: input.discountAmount,
+    total: input.totalAmount,
+    paymentMethod: input.paymentMethod || 'Tunai',
+    amountPaid: input.amountPaid,
+    change: input.changeAmount,
+  };
+  await sendInvoice(customerEmail, data);
+}
+*/
+
+export const refundOrder = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const params = paramSchema.safeParse(req.params);
   if (!params.success) {
     return res.status(400).json({ error: 'Invalid order id' });
@@ -173,11 +208,8 @@ export const refundOrder = async (req: Request, res: Response) => {
     const order = await orderService.refundOrder(params.data.id, body.data.reason, body.data.refundedBy);
     res.json(order);
   } catch (error: any) {
-    console.error('Failed to refund order', error);
-    if (error?.message?.includes('not found')) return res.status(404).json({ error: error.message });
-    if (error?.message?.includes('already refunded') || error?.message?.includes('Cannot refund')) {
-      return res.status(400).json({ error: error.message });
-    }
-    res.status(500).json({ error: 'Failed to refund order', detail: error?.message });
+    if (error?.message?.includes('not found')) throw new HttpError(404, error.message);
+    if (error?.message?.includes('already refunded') || error?.message?.includes('Cannot refund')) throw new HttpError(400, error.message);
+    throw error;
   }
-};
+});

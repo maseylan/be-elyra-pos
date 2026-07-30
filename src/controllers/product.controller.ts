@@ -1,8 +1,9 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response } from 'express';
 import { z } from 'zod';
 import * as productService from '../services/product.service';
 import * as outletProductService from '../services/outlet-product.service';
 import { HttpError } from '../utils/errors';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const createProductSchema = z.object({
   sku: z.string().min(1).max(64),
@@ -40,53 +41,41 @@ const paginationSchema = z.object({
 
 const idParamSchema = z.object({ id: z.string().length(36) });
 
-export const getProducts = async (req: Request, res: Response, next: NextFunction) => {
+export const getProducts = asyncHandler(async (req: Request, res: Response) => {
   const parsed = paginationSchema.safeParse(req.query);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid query params', details: parsed.error.flatten() });
   }
-  try {
-    const outletId = (req as any).outletId;
-    let products;
-    if (outletId) {
-      products = await outletProductService.listProductsForOutlet(outletId, parsed.data);
-    } else {
-      products = await productService.listProducts(parsed.data);
-    }
-    res.json(products);
-  } catch (error) {
-    next(error);
+  const outletId = (req as any).outletId;
+  let products;
+  if (outletId) {
+    products = await outletProductService.listProductsForOutlet(outletId, parsed.data);
+  } else {
+    products = await productService.listProducts(parsed.data);
   }
-};
+  res.json(products);
+});
 
-export const getProductById = async (req: Request, res: Response, next: NextFunction) => {
+export const getProductById = asyncHandler(async (req: Request, res: Response) => {
   const parsedParams = idParamSchema.safeParse(req.params);
   if (!parsedParams.success) {
     return res.status(400).json({ error: 'Invalid product id' });
   }
-  try {
-    const outletId = (req.query.outletId as string) || (req.params as any).outletId || (req as any).outletId;
-    const product = await productService.getProductById(parsedParams.data.id, outletId);
-    res.json(product);
-  } catch (error) {
-    if (error instanceof HttpError) {
-      return res.status(404).json({ error: error.message });
-    }
-    next(error);
-  }
-};
+  const outletId = (req.query.outletId as string) || (req.params as any).outletId || (req as any).outletId;
+  const product = await productService.getProductById(parsedParams.data.id, outletId);
+  res.json(product);
+});
 
-export const createProduct = async (req: Request, res: Response, next: NextFunction) => {
+export const createProduct = asyncHandler(async (req: Request, res: Response) => {
   const parsed = createProductSchema.safeParse(req.body);
   if (!parsed.success) {
-    console.error('Validation error:', parsed.error.flatten());
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
   }
-  try {
-    const outletId = (req as any).outletId;
-    const isGlobal = outletId ? false : parsed.data.isGlobal;
-    const outletIds = outletId ? [outletId] : parsed.data.outletIds;
+  const outletId = (req as any).outletId;
+  const isGlobal = outletId ? false : parsed.data.isGlobal;
+  const outletIds = outletId ? [outletId] : parsed.data.outletIds;
 
+  try {
     const product = await productService.createProduct({
       ...parsed.data,
       isGlobal,
@@ -95,55 +84,35 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
     } as any);
     res.status(201).json(product);
   } catch (error: any) {
-    console.error('Error creating product:', error);
-    if (error.code === '23505') {
-      return res.status(400).json({ error: 'SKU atau barcode produk sudah digunakan', detail: error.detail });
-    }
-    if (error.code === '23503') {
-      return res.status(400).json({ error: 'Kategori atau referensi produk tidak ditemukan', detail: error.detail });
-    }
-    return res.status(400).json({ error: error.message || 'Gagal menambahkan produk' });
+    if (error.code === '23505') throw new HttpError(400, 'SKU atau barcode produk sudah digunakan');
+    if (error.code === '23503') throw new HttpError(400, 'Kategori atau referensi produk tidak ditemukan');
+    throw error;
   }
-};
+});
 
-export const updateProduct = async (req: Request, res: Response, next: NextFunction) => {
+export const updateProduct = asyncHandler(async (req: Request, res: Response) => {
   const parsedParams = idParamSchema.safeParse(req.params);
   if (!parsedParams.success) {
     return res.status(400).json({ error: 'Invalid product id' });
   }
-  
-  const parsed = createProductSchema.safeParse(req.body); // You can use a partial schema if needed, but createProductSchema handles the full PUT payload
+
+  const parsed = createProductSchema.safeParse(req.body);
   if (!parsed.success) {
-    console.error('Validation error on update:', parsed.error.flatten());
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
   }
-  
-  try {
-    const product = await productService.updateProduct(parsedParams.data.id, {
-      ...parsed.data,
-      updatedBy: (req as any).user?.id || (req as any).user?.userId,
-    } as any);
-    res.json(product);
-  } catch (error) {
-    if (error instanceof HttpError) {
-      return res.status(404).json({ error: error.message });
-    }
-    next(error);
-  }
-};
 
-export const deleteProduct = async (req: Request, res: Response, next: NextFunction) => {
+  const product = await productService.updateProduct(parsedParams.data.id, {
+    ...parsed.data,
+    updatedBy: (req as any).user?.id || (req as any).user?.userId,
+  } as any);
+  res.json(product);
+});
+
+export const deleteProduct = asyncHandler(async (req: Request, res: Response) => {
   const parsedParams = idParamSchema.safeParse(req.params);
   if (!parsedParams.success) {
     return res.status(400).json({ error: 'Invalid product id' });
   }
-  try {
-    await productService.deleteProduct(parsedParams.data.id);
-    res.json({ success: true });
-  } catch (error) {
-    if (error instanceof HttpError) {
-      return res.status(404).json({ error: error.message });
-    }
-    next(error);
-  }
-};
+  await productService.deleteProduct(parsedParams.data.id);
+  res.json({ success: true });
+});

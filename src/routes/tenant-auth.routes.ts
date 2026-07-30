@@ -4,12 +4,14 @@ import bcrypt from 'bcryptjs';
 import { eq, and } from 'drizzle-orm';
 import { publicDb } from '../db/poolManager';
 import { tenants } from '../db/schema';
-import { withTenantSchema } from '../db/with-tenant-schema';
+import { withTenantDb } from '../db/with-tenant-db';
 import * as tenantSchema from '../db/tenant_schema';
 import { signAccessToken, generateRefreshToken, hashToken, rotateRefreshToken } from '../services/token.service';
 import { checkLoginLockout, recordFailedLogin, resetLoginAttempts, getLoginScope } from '../services/login-lockout.service';
 import { getCurrentTenant } from '../contexts/tenant-context';
 import { HttpError } from '../utils/errors';
+import { sendResetPassword } from '../services/email.service';
+import { generateResetToken, verifyResetToken } from '../services/otp.service';
 
 const router = Router();
 
@@ -26,8 +28,8 @@ const pinLoginSchema = z.object({
 function setRefreshCookie(res: Response, plainToken: string) {
   res.cookie('refreshToken', plainToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: true,
+    sameSite: 'strict',
     maxAge: 7 * 24 * 60 * 60 * 1000,
     path: '/api/auth',
   });
@@ -36,8 +38,8 @@ function setRefreshCookie(res: Response, plainToken: string) {
 function clearRefreshCookie(res: Response) {
   res.clearCookie('refreshToken', {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: true,
+    sameSite: 'strict',
     path: '/api/auth',
   });
 }
@@ -72,7 +74,7 @@ async function handlePasswordLogin(req: Request, res: Response, tenantId: string
 
   await checkLoginLockout(scope, email);
 
-  const users = await withTenantSchema(async (tx) => {
+  const users = await withTenantDb(async (tx) => {
     return tx.select().from(tenantSchema.users).where(
       and(
         eq(tenantSchema.users.email, email),
@@ -96,7 +98,7 @@ async function handlePasswordLogin(req: Request, res: Response, tenantId: string
   await resetLoginAttempts(scope, email);
 
   const { plain, hash } = generateRefreshToken();
-  await withTenantSchema(async (tx) => {
+  await withTenantDb(async (tx) => {
     await tx
       .insert(tenantSchema.refreshTokens)
       .values({
@@ -148,7 +150,7 @@ async function handlePinLogin(req: Request, res: Response, tenantId: string) {
 
   await checkLoginLockout(scope, userId);
 
-  const users = await withTenantSchema(async (tx) => {
+  const users = await withTenantDb(async (tx) => {
     return tx.select().from(tenantSchema.users).where(
       and(
         eq(tenantSchema.users.id, userId),
@@ -172,7 +174,7 @@ async function handlePinLogin(req: Request, res: Response, tenantId: string) {
   await resetLoginAttempts(scope, userId);
 
   const { plain, hash } = generateRefreshToken();
-  await withTenantSchema(async (tx) => {
+  await withTenantDb(async (tx) => {
     await tx
       .insert(tenantSchema.refreshTokens)
       .values({
@@ -219,7 +221,7 @@ router.post('/refresh', async (req: Request, res: Response) => {
     const { tenantId } = getCurrentTenant();
     const incomingHash = hashToken(incomingToken);
 
-    const result = await withTenantSchema(async (tx) => {
+    const result = await withTenantDb(async (tx) => {
       const [existing] = await tx
         .select()
         .from(tenantSchema.refreshTokens)
@@ -268,12 +270,53 @@ router.post('/refresh', async (req: Request, res: Response) => {
   }
 });
 
+router.post('/forgot-password', async (req: Request, res: Response) => {
+  try {
+    const { email } = z.object({ email: z.string().email() }).parse(req.body);
+    const { tenantId } = getCurrentTenant();
+    const users = await withTenantDb(async (tx) =>
+      tx.select().from(tenantSchema.users).where(and(eq(tenantSchema.users.email, email), eq(tenantSchema.users.isActive, true)))
+    );
+    const user = users[0];
+    if (!user) return res.json({ message: 'Link reset password telah dikirim ke email Anda.' });
+    const token = await generateResetToken(email, `tenant:${tenantId}`);
+    const [tenantRecord] = await publicDb.select({ subdomain: tenants.subdomain }).from(tenants).where(eq(tenants.id, tenantId));
+    const rootDomain = process.env.ROOT_DOMAIN || 'elyrapos.my.id';
+    const tenantUrl = `https://${tenantRecord?.subdomain || 'unknown'}.${rootDomain}`;
+    const resetLink = `${tenantUrl}/reset-password?token=${token}&email=${encodeURIComponent(email)}`;
+    sendResetPassword(email, resetLink).catch(e => console.warn('Reset password email failed:', e));
+    res.json({ message: 'Link reset password telah dikirim ke email Anda.' });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) return res.status(400).json({ error: 'Validasi gagal', details: error.issues });
+    console.error('Forgot password error:', error);
+    res.status(500).json({ error: 'Kesalahan server internal' });
+  }
+});
+
+router.post('/reset-password', async (req: Request, res: Response) => {
+  try {
+    const { email, token, password } = z.object({ email: z.string().email(), token: z.string().min(1), password: z.string().min(6) }).parse(req.body);
+    const { tenantId } = getCurrentTenant();
+    const valid = await verifyResetToken(email, token, `tenant:${tenantId}`);
+    if (!valid) return res.status(400).json({ error: 'Token tidak valid atau sudah kedaluwarsa' });
+    const hash = await bcrypt.hash(password, 12);
+    await withTenantDb(async (tx) =>
+      tx.update(tenantSchema.users).set({ passwordHash: hash }).where(eq(tenantSchema.users.email, email))
+    );
+    res.json({ message: 'Password berhasil direset' });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) return res.status(400).json({ error: 'Validasi gagal', details: error.issues });
+    console.error('Reset password error:', error);
+    res.status(500).json({ error: 'Kesalahan server internal' });
+  }
+});
+
 router.post('/logout', async (req: Request, res: Response) => {
   try {
     const incomingToken = req.cookies?.refreshToken;
     if (incomingToken) {
       const hashed = hashToken(incomingToken);
-      await withTenantSchema(async (tx) => {
+      await withTenantDb(async (tx) => {
         await tx.delete(tenantSchema.refreshTokens).where(eq(tenantSchema.refreshTokens.tokenHash, hashed));
       });
     }

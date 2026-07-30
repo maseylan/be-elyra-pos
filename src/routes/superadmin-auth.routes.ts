@@ -7,7 +7,6 @@ import { superAdmins, superadminRefreshTokens } from '../db/schema';
 import { signAccessToken, generateRefreshToken, hashToken, rotateRefreshToken } from '../services/token.service';
 import { checkLoginLockout, recordFailedLogin, resetLoginAttempts } from '../services/login-lockout.service';
 import { HttpError } from '../utils/errors';
-
 const router = Router();
 
 const loginSchema = z.object({
@@ -18,8 +17,8 @@ const loginSchema = z.object({
 function setRefreshCookie(res: Response, plainToken: string) {
   res.cookie('refreshToken', plainToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: true,
+    sameSite: 'strict',
     maxAge: 7 * 24 * 60 * 60 * 1000,
     path: '/api/auth',
   });
@@ -28,8 +27,8 @@ function setRefreshCookie(res: Response, plainToken: string) {
 function clearRefreshCookie(res: Response) {
   res.clearCookie('refreshToken', {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: true,
+    sameSite: 'strict',
     path: '/api/auth',
   });
 }
@@ -51,6 +50,10 @@ router.post('/login', async (req: Request, res: Response) => {
     if (!isPasswordValid) {
       await recordFailedLogin(scope, email);
       return res.status(401).json({ error: 'Email atau password salah' });
+    }
+
+    if (!admin.emailVerified) {
+      return res.status(403).json({ error: 'Email belum diverifikasi. Silakan cek email Anda.' });
     }
 
     await resetLoginAttempts(scope, email);

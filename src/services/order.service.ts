@@ -1,4 +1,4 @@
-import { withTenantSchema } from '../db/with-tenant-schema';
+import { withTenantDb } from '../db/with-tenant-db';
 import * as schema from '../db/tenant_schema';
 import * as loyaltyService from './loyalty.service';
 import { eq, desc, sql, and, gte, lte, or, isNull } from 'drizzle-orm';
@@ -39,7 +39,34 @@ function padSeq(n: number, len = 4): string {
 }
 
 export async function createOrder(outletId: string, input: CreateOrderInput) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
+    // Verify item prices against DB
+    const productIds = [...new Set(input.items.map(i => i.productId))];
+    const variantIds = input.items.map(i => i.variantId).filter(Boolean) as string[];
+    const dbResults = await Promise.all(
+      productIds.map(id => tx.select().from(schema.products).where(eq(schema.products.id, id)).limit(1))
+    );
+    const dbProducts = dbResults.map(r => r[0]).filter(Boolean) as any[];
+    const variantResults = variantIds.length > 0
+      ? await Promise.all(variantIds.map(id => tx.select().from(schema.productVariants).where(eq(schema.productVariants.id, id)).limit(1)))
+      : [];
+    const dbVariants = variantResults.map(r => r[0]).filter(Boolean) as any[];
+    const productPriceMap = new Map(dbProducts.map(p => [p.id, Number(p.sellPrice)]));
+    const variantPriceMap = new Map(dbVariants.map(v => [v.id, Number(v.price)]));
+    for (const item of input.items) {
+      const dbPrice = item.variantId ? variantPriceMap.get(item.variantId) : productPriceMap.get(item.productId);
+      if (dbPrice === undefined) throw new Error(`Product not found: ${item.productName || item.productId}`);
+      if (item.price < dbPrice) {
+        throw new Error(`Price mismatch for ${item.productName || item.productId}: client ${item.price} < DB ${dbPrice}`);
+      }
+      if (item.price > dbPrice) {
+        throw new Error(`Price mismatch for ${item.productName || item.productId}: client ${item.price} > DB ${dbPrice}`);
+      }
+      if (Math.round(Number(item.subtotal)) !== Math.round(item.price * item.quantity)) {
+        throw new Error(`Subtotal mismatch for ${item.productName || item.productId}: ${item.subtotal} !== ${item.price * item.quantity}`);
+      }
+    }
+
     // Enforce active session for checkout
     let activeSessionQuery = tx
       .select()
@@ -73,7 +100,7 @@ export async function createOrder(outletId: string, input: CreateOrderInput) {
       throw new Error('No active cashier session found for this outlet. Please open shift register before completing orders.');
     }
 
-    // Fetch outlet + settings for order number generation
+    // Fetch outlet + settings for order number generation and tax validation
     const [outlet] = await tx.select().from(schema.outlets).where(eq(schema.outlets.id, outletId)).limit(1);
     const [tenantDefault] = await tx.select().from(schema.tenantSettings).where(eq(schema.tenantSettings.id, 'default'));
     const [override] = await tx.select().from(schema.outletSettings).where(eq(schema.outletSettings.outletId, outletId));
@@ -81,11 +108,25 @@ export async function createOrder(outletId: string, input: CreateOrderInput) {
     const autoGenerate = override?.autoGenerateOrderNumberOverride ?? tenantDefault?.autoGenerateOrderNumber ?? true;
     const numFormat = override?.orderNumberingFormatOverride ?? tenantDefault?.orderNumberingFormat ?? '{OUTLET}-{YYYYMMDD}-{SEQ}';
     const seqReset = override?.orderSequenceResetOverride ?? tenantDefault?.orderSequenceReset ?? 'daily';
+    const allowNegativeStock = override?.allowNegativeStockOverride ?? tenantDefault?.allowNegativeStock ?? false;
+
+    // Validate tax amount against configured rate
+    const taxRate = Number(override?.taxRateOverride ?? tenantDefault?.defaultTaxRate ?? 0);
+    const taxType = override?.taxTypeOverride ?? tenantDefault?.taxType ?? 'none';
+    if (taxType !== 'none' && taxRate > 0) {
+      const expectedTax = Math.round(input.subtotal * taxRate / 100);
+      if (Math.abs(input.taxAmount - expectedTax) > 1) {
+        throw new Error(`Tax mismatch: client ${input.taxAmount}, expected ~${expectedTax} (rate ${taxRate}%)`);
+      }
+    }
 
     let orderNumber: string | undefined;
     if (autoGenerate) {
       const outletCode = outlet?.code || 'OUT';
       const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+
+      // Serialize order number generation per outlet via advisory lock
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${outletId})::bigint)`);
 
       let seq = 0;
       if (seqReset === 'daily') {
@@ -108,13 +149,13 @@ export async function createOrder(outletId: string, input: CreateOrderInput) {
         .replace(/\{SEQ\}/g, padSeq(seq));
     }
 
-    // Handle coupon if provided
+    // Handle coupon if provided — use server-calculated discountAmount
     let couponId: string | undefined;
+    let serverDiscount = input.discountAmount;
     if (input.couponCode && input.discountAmount > 0) {
-      try {
-        const { coupon } = await loyaltyService.validateCoupon(input.couponCode, input.subtotal, input.memberId, outletId);
-        couponId = coupon.id;
-      } catch {}
+      const result = await loyaltyService.validateCoupon(input.couponCode, input.subtotal, input.memberId, outletId);
+      couponId = result.coupon.id;
+      serverDiscount = result.discountAmount;
     }
 
     const [order] = await tx.insert(schema.orders).values({
@@ -124,8 +165,8 @@ export async function createOrder(outletId: string, input: CreateOrderInput) {
       sessionId: activeSession.id,
       subtotal: String(input.subtotal),
       taxAmount: String(input.taxAmount),
-      discountAmount: String(input.discountAmount),
-      totalAmount: String(input.totalAmount),
+      discountAmount: String(serverDiscount),
+      totalAmount: String(input.subtotal + input.taxAmount - serverDiscount + input.roundingAmount),
       roundingAmount: String(input.roundingAmount),
       orderNumber,
       paymentMethod: input.paymentMethod,
@@ -184,7 +225,10 @@ export async function createOrder(outletId: string, input: CreateOrderInput) {
         .limit(1);
 
       if (op) {
-        const newStock = Math.max(0, op.stock - item.quantity);
+        if (op.stock < item.quantity && !allowNegativeStock) {
+          throw new Error(`Stok tidak mencukupi untuk ${item.productName || item.productId}. Sisa: ${op.stock}, diminta: ${item.quantity}`);
+        }
+        const newStock = op.stock - item.quantity;
         await tx
           .update(schema.outletProducts)
           .set({ stock: newStock, updatedAt: new Date() })
@@ -212,7 +256,7 @@ export async function createOrder(outletId: string, input: CreateOrderInput) {
         couponId,
         orderId: order.id,
         memberId: input.memberId || null,
-        discountAmount: String(input.discountAmount),
+        discountAmount: String(serverDiscount),
       });
       await tx.update(schema.loyaltyCoupons)
         .set({ usedCount: sql`${schema.loyaltyCoupons.usedCount} + 1` })
@@ -255,7 +299,7 @@ export async function createOrder(outletId: string, input: CreateOrderInput) {
 }
 
 export async function listOrders(filters: { outletId?: string; page?: number; limit?: number; status?: string; from?: string; to?: string; memberId?: string }) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const page = filters.page || 1;
     const limit = filters.limit || 20;
     const offset = (page - 1) * limit;
@@ -285,7 +329,7 @@ export async function listOrders(filters: { outletId?: string; page?: number; li
 }
 
 export async function getOrderById(orderId: string, outletId?: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const conditions: any[] = [eq(schema.orders.id, orderId)];
     if (outletId) conditions.push(eq(schema.orders.outletId, outletId));
 
@@ -307,7 +351,7 @@ export async function getOrderById(orderId: string, outletId?: string) {
 }
 
 export async function getOrderSummary(filters: { outletId?: string; period?: string; from?: string; to?: string; tz?: string }) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const conditions: any[] = [eq(schema.orders.status, 'completed')];
     if (filters.outletId) conditions.push(eq(schema.orders.outletId, filters.outletId));
 
@@ -393,16 +437,16 @@ export async function getOrderSummary(filters: { outletId?: string; period?: str
 }
 
 export async function refundOrder(orderId: string, reason: string, refundedBy?: string) {
-  return withTenantSchema(async (tx) => {
+  return withTenantDb(async (tx) => {
     const [order] = await tx
       .select()
       .from(schema.orders)
       .where(eq(schema.orders.id, orderId))
+      .for('update')
       .limit(1);
 
     if (!order) throw new Error('Order not found');
-    if (order.status === 'refunded') throw new Error('Order already refunded');
-    if (order.status === 'void') throw new Error('Cannot refund a voided order');
+    if (order.status !== 'completed') throw new Error('Order cannot be refunded (current status: ' + order.status + ')');
 
     const items = await tx
       .select()
@@ -449,8 +493,10 @@ export async function refundOrder(orderId: string, reason: string, refundedBy?: 
         status: 'refunded',
         updatedAt: new Date(),
       })
-      .where(eq(schema.orders.id, orderId))
+      .where(and(eq(schema.orders.id, orderId), eq(schema.orders.status, 'completed')))
       .returning();
+
+    if (!updated) throw new Error('Order was already refunded by another request');
 
     return updated;
   });
