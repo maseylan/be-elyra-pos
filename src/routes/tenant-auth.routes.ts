@@ -26,7 +26,7 @@ const pinLoginSchema = z.object({
 });
 
 function setRefreshCookie(res: Response, plainToken: string) {
-  res.cookie('refreshToken', plainToken, {
+  res.cookie('tenantRefreshToken', plainToken, {
     httpOnly: true,
     secure: true,
     sameSite: 'strict',
@@ -36,7 +36,7 @@ function setRefreshCookie(res: Response, plainToken: string) {
 }
 
 function clearRefreshCookie(res: Response) {
-  res.clearCookie('refreshToken', {
+  res.clearCookie('tenantRefreshToken', {
     httpOnly: true,
     secure: true,
     sameSite: 'strict',
@@ -213,7 +213,7 @@ async function handlePinLogin(req: Request, res: Response, tenantId: string) {
 
 router.post('/refresh', async (req: Request, res: Response) => {
   try {
-    const incomingToken = req.cookies?.refreshToken;
+    const incomingToken = req.cookies?.tenantRefreshToken;
     if (!incomingToken) {
       return res.status(401).json({ error: 'Refresh token tidak ditemukan' });
     }
@@ -313,7 +313,7 @@ router.post('/reset-password', async (req: Request, res: Response) => {
 
 router.post('/logout', async (req: Request, res: Response) => {
   try {
-    const incomingToken = req.cookies?.refreshToken;
+    const incomingToken = req.cookies?.tenantRefreshToken;
     if (incomingToken) {
       const hashed = hashToken(incomingToken);
       await withTenantDb(async (tx) => {

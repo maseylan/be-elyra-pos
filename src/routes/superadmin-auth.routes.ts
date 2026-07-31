@@ -15,7 +15,7 @@ const loginSchema = z.object({
 });
 
 function setRefreshCookie(res: Response, plainToken: string) {
-  res.cookie('refreshToken', plainToken, {
+  res.cookie('superadminRefreshToken', plainToken, {
     httpOnly: true,
     secure: true,
     sameSite: 'strict',
@@ -25,7 +25,7 @@ function setRefreshCookie(res: Response, plainToken: string) {
 }
 
 function clearRefreshCookie(res: Response) {
-  res.clearCookie('refreshToken', {
+  res.clearCookie('superadminRefreshToken', {
     httpOnly: true,
     secure: true,
     sameSite: 'strict',
@@ -100,7 +100,7 @@ router.post('/login', async (req: Request, res: Response) => {
 
 router.post('/refresh', async (req: Request, res: Response) => {
   try {
-    const incomingToken = req.cookies?.refreshToken;
+    const incomingToken = req.cookies?.superadminRefreshToken;
     if (!incomingToken) {
       return res.status(401).json({ error: 'Refresh token tidak ditemukan' });
     }
@@ -130,7 +130,7 @@ router.post('/refresh', async (req: Request, res: Response) => {
 
 router.post('/logout', async (req: Request, res: Response) => {
   try {
-    const incomingToken = req.cookies?.refreshToken;
+    const incomingToken = req.cookies?.superadminRefreshToken;
     if (incomingToken) {
       const hashed = hashToken(incomingToken);
       await publicDb.delete(superadminRefreshTokens).where(eq(superadminRefreshTokens.tokenHash, hashed));
