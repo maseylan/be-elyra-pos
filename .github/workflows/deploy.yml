@@ -3,7 +3,7 @@ name: Deploy BE
 on:
   push:
     branches: [dev]
-    paths: ['src/**', 'drizzle/**', 'package.json', 'package-lock.json', 'tsconfig.json', 'ecosystem.config.js']
+    paths: ['src/**', 'drizzle/**', 'package.json', 'package-lock.json', 'tsconfig.json', 'ecosystem.config.js', '.github/**']
 
 jobs:
   deploy:
