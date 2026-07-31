@@ -20,7 +20,7 @@ const loginSchema = z.object({
 function setRefreshCookie(res: Response, plainToken: string) {
   res.cookie('ownerRefreshToken', plainToken, {
     httpOnly: true,
-    secure: true,
+    secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
     maxAge: 7 * 24 * 60 * 60 * 1000,
     path: '/api/auth',
@@ -30,7 +30,7 @@ function setRefreshCookie(res: Response, plainToken: string) {
 function clearRefreshCookie(res: Response) {
   res.clearCookie('ownerRefreshToken', {
     httpOnly: true,
-    secure: true,
+    secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
     path: '/api/auth',
   });
