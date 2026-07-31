@@ -65,9 +65,8 @@ export async function rotateRefreshToken(
         .for('update');
 
       if (existing) {
-        // ponytail: reuse detected — revoke all tokens for this user
-        const fkCol = table.superAdminId ?? table.tenantId ?? table.userId;
-        await tx.delete(table).where(eq(fkCol, existing[fkCol]));
+        // ponytail: parallel refresh race (2 tabs) — don't nuke all sessions,
+        // just reject this token; FE single-flight prevents same-tab races
         throw new HttpError(401, 'Session revoked — possible token theft');
       }
 
