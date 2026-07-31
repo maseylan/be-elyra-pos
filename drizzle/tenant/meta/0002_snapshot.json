@@ -1,6 +1,6 @@
 {
-  "id": "072399de-d0c4-4287-a354-657b48f5e927",
-  "prevId": "a0000000-0000-0000-0000-000000000000",
+  "id": "b0000000-0000-0000-0000-000000000000",
+  "prevId": "072399de-d0c4-4287-a354-657b48f5e927",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3167,6 +3167,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "previous_token_hash": {
+          "name": "previous_token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "expires_at": {
           "name": "expires_at",
           "type": "timestamp with time zone",
@@ -3208,6 +3214,21 @@
             }
           ],
           "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_refresh_tokens_previous_hash": {
+          "name": "idx_refresh_tokens_previous_hash",
+          "columns": [
+            {
+              "expression": "previous_token_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}

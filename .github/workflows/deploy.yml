@@ -1,0 +1,25 @@
+name: Deploy BE
+
+on:
+  push:
+    branches: [dev]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: SSH Deploy
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            export PATH="$PATH:$(npm config get prefix)/bin"
+            cd /srv/POS/BE/be-elyra-pos
+            git pull origin dev
+            npm ci
+            npm run build
+            pm2 restart pos-api --update-env
+            node dist/scripts/migrate-all-tenants.js || true

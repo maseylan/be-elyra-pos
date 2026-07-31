@@ -1,6 +1,6 @@
 {
-  "id": "072399de-d0c4-4287-a354-657b48f5e927",
-  "prevId": "a0000000-0000-0000-0000-000000000000",
+  "id": "a0000000-0000-0000-0000-000000000000",
+  "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3182,21 +3182,6 @@
         }
       },
       "indexes": {
-        "refresh_tokens_user_id_unique": {
-          "name": "refresh_tokens_user_id_unique",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "idx_refresh_tokens_token_hash": {
           "name": "idx_refresh_tokens_token_hash",
           "columns": [
