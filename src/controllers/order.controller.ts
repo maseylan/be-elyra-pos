@@ -25,6 +25,7 @@ const createOrderSchema = z.object({
   subtotal: z.number().min(0),
   taxAmount: z.number().min(0),
   discountAmount: z.number().min(0),
+  promoDiscount: z.number().min(0).default(0),
   totalAmount: z.number().min(0),
   roundingAmount: z.number().default(0),
   paymentMethod: z.string().min(1),

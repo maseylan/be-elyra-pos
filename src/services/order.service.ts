@@ -20,6 +20,7 @@ interface CreateOrderInput {
   subtotal: number;
   taxAmount: number;
   discountAmount: number;
+  promoDiscount?: number;
   totalAmount: number;
   roundingAmount: number;
   paymentMethod: string;
@@ -110,11 +111,16 @@ export async function createOrder(outletId: string, input: CreateOrderInput) {
     const seqReset = override?.orderSequenceResetOverride ?? tenantDefault?.orderSequenceReset ?? 'daily';
     const allowNegativeStock = override?.allowNegativeStockOverride ?? tenantDefault?.allowNegativeStock ?? false;
 
-    // Validate tax amount against configured rate
+    // Validate tax amount against configured rate (matching FE calculation)
     const taxRate = Number(override?.taxRateOverride ?? tenantDefault?.defaultTaxRate ?? 0);
     const taxType = override?.taxTypeOverride ?? tenantDefault?.taxType ?? 'none';
+    const promotionTaxMode = override?.promotionTaxModeOverride ?? tenantDefault?.promotionTaxMode ?? 'after_tax';
     if (taxType !== 'none' && taxRate > 0) {
-      const expectedTax = Math.round(input.subtotal * taxRate / 100);
+      const promoDiscount = Math.max(0, Number(input.promoDiscount || 0));
+      const taxableBase = promotionTaxMode === 'before_tax' ? Math.max(0, input.subtotal - promoDiscount) : input.subtotal;
+      const expectedTax = taxType === 'inclusive'
+        ? Math.round(taxableBase * taxRate / (100 + taxRate))
+        : Math.round(taxableBase * taxRate / 100);
       if (Math.abs(input.taxAmount - expectedTax) > 1) {
         throw new Error(`Tax mismatch: client ${input.taxAmount}, expected ~${expectedTax} (rate ${taxRate}%)`);
       }
@@ -166,7 +172,7 @@ export async function createOrder(outletId: string, input: CreateOrderInput) {
       subtotal: String(input.subtotal),
       taxAmount: String(input.taxAmount),
       discountAmount: String(serverDiscount),
-      totalAmount: String(input.subtotal + input.taxAmount - serverDiscount + input.roundingAmount),
+      totalAmount: String((taxType === 'inclusive' ? input.subtotal : input.subtotal + input.taxAmount) - serverDiscount + input.roundingAmount),
       roundingAmount: String(input.roundingAmount),
       orderNumber,
       paymentMethod: input.paymentMethod,

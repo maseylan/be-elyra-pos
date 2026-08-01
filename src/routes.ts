@@ -26,6 +26,7 @@ import { createVariant, getVariants, updateVariant, deleteVariant, updateOutletV
 import { createModifierGroup, getModifierGroups, createModifier, updateModifierGroup, updateModifier, deleteModifier, updateOutletModifier } from './controllers/modifier.controller';
 import { createAddOn, getAddOns, attachAddOn, detachAddOn, updateOutletAddOn } from './controllers/addon.controller';
 import { getActiveSession, openSession, closeSession, forceCloseSession, getSessionHistory } from './controllers/session.controller';
+import { printRaw } from './controllers/print.controller';
 
 const apiRouter = Router();
 
@@ -115,6 +116,9 @@ apiRouter.get('/orders/summary', resolveOutletContext, getOrderSummary);
 apiRouter.get('/orders', resolveOutletContext, listOrders);
 apiRouter.patch('/orders/:id/refund', requireAdminOrOwner, refundOrder);
 apiRouter.get('/orders/:id', resolveOutletContext, getOrder);
+
+// Raw ESC/POS print ke printer TCP (host whitelisted loopback)
+apiRouter.post('/print/raw', printRaw);
 
 // Outlet routes
 apiRouter.get('/outlets', listOutlets);

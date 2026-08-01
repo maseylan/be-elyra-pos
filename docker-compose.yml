@@ -53,6 +53,8 @@ services:
     volumes:
       - ./:/app
       - /app/node_modules
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - PORT=3000
       - NODE_ENV=development
