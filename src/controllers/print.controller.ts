@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import net from 'net';
+import * as printService from '../services/print.service';
 
 const FIXED_HOSTS = new Set(['127.0.0.1', 'localhost', 'host.docker.internal']);
 const DEFAULT_PORT = 9100;
@@ -55,4 +56,29 @@ export async function printRaw(req: Request, res: Response) {
   socket.on('close', () => {
     clearTimeout(timeout);
   });
+}
+
+export async function getQzCertificate(req: Request, res: Response) {
+  try {
+    const cert = await printService.getQzCertificate();
+    res.type('text/plain').send(cert);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Failed to get QZ certificate' });
+  }
+}
+
+export async function signQzRequest(req: Request, res: Response) {
+  try {
+    const toSign = req.body?.request || req.query?.request;
+    if (!toSign || typeof toSign !== 'string') {
+      return res.status(400).json({ error: 'request parameter is required for QZ Tray signing' });
+    }
+    if (toSign.length > 51200) {
+      return res.status(413).json({ error: 'request string payload too large for signing' });
+    }
+    const signature = await printService.signQzRequest(toSign);
+    res.type('text/plain').send(signature);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Failed to sign QZ Tray request' });
+  }
 }

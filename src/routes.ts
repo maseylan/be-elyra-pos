@@ -27,7 +27,7 @@ import { createModifierGroup, getModifierGroups, createModifier, updateModifierG
 import { createAddOn, getAddOns, attachAddOn, detachAddOn, updateOutletAddOn } from './controllers/addon.controller';
 import { getActiveSession, openSession, closeSession, forceCloseSession, getSessionHistory, getTerminalStatus, createCashMovement, getCashMovements } from './controllers/session.controller';
 import { getPendingQROrders, claimPendingQROrder } from './controllers/self-order.controller';
-import { printRaw } from './controllers/print.controller';
+import { printRaw, getQzCertificate, signQzRequest } from './controllers/print.controller';
 
 const apiRouter = Router();
 
@@ -202,8 +202,12 @@ apiRouter.post('/promotions', requireAdminOrOwner, createPromotion);
 apiRouter.get('/promotions', requireAdminOrOwner, listPromotions);
 apiRouter.put('/promotions/:id', requireAdminOrOwner, updatePromotion);
 apiRouter.delete('/promotions/:id', requireAdminOrOwner, deletePromotion);
-apiRouter.put('/promotions/:id/outlets', requireAdminOrOwner, updatePromotionOutlets);
 apiRouter.get('/promotions/:id', requireAdminOrOwner, getPromotion);
+
+// QZ Tray Code Signing Endpoints
+apiRouter.get('/print/qz-certificate', getQzCertificate);
+apiRouter.post('/print/sign-qz', signQzRequest);
+apiRouter.get('/print/sign-qz', signQzRequest);
 
 // 404 catch-all for unmatched API routes
 apiRouter.use((req, res) => {
