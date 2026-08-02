@@ -3,6 +3,7 @@ import { publicDb } from './poolManager';
 import { tenants } from './schema';
 import { eq } from 'drizzle-orm';
 import { decryptDbUrl } from '../utils/dbUrlEncryption';
+import fs from 'fs';
 
 const DEFAULT_DB_URL = process.env.TENANT_DEFAULT_DB_URL || process.env.DATABASE_URL || '';
 const MAX_POOLS = 100;
@@ -50,6 +51,17 @@ class TenantDbManager {
       const baseUrl = new URL(DEFAULT_DB_URL);
       baseUrl.pathname = `/${tenantId}`;
       connectionString = baseUrl.toString();
+    }
+
+    const isDocker = fs.existsSync('/.dockerenv');
+    if (isDocker) {
+      if (connectionString.includes('@localhost:5433') || connectionString.includes('@127.0.0.1:5433')) {
+        connectionString = connectionString.replace(/@(localhost|127\.0\.0\.1):5433/, '@postgres:5432');
+      }
+    } else {
+      if (connectionString.includes('@postgres:5432')) {
+        connectionString = connectionString.replace('@postgres:5432', '@localhost:5433');
+      }
     }
 
     if (tenant?.connectionPoolSize && tenant.connectionPoolSize > 0) {

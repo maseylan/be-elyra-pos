@@ -58,6 +58,13 @@ export const tenantSettings = pgTable('tenant_settings', {
   taxType: taxTypeEnum('tax_type').default('none'),
   receiptFooter: text('receipt_footer'),
 
+  // Printer
+  printerHost: varchar('printer_host', { length: 100 }),
+  printerPort: integer('printer_port'),
+  printerName: varchar('printer_name', { length: 200 }), // nama printer Windows untuk QZ Tray
+  printerNames: jsonb('printer_names').$type<string[]>(), // daftar nama printer QZ Tray (one-to-many)
+  printerRoles: jsonb('printer_roles').$type<Record<string, 'receipt' | 'kitchen' | 'bar'>>(), // peran printer (kasir, dapur, bar)
+
   // Regional preferences
   timezone: varchar('timezone', { length: 50 }).default('Asia/Jakarta'),
   currency: varchar('currency', { length: 10 }).default('IDR'),
@@ -80,6 +87,10 @@ export const tenantSettings = pgTable('tenant_settings', {
   paymentMethods: jsonb('payment_methods'),
 
   promotionTaxMode: varchar('promotion_tax_mode', { length: 10 }).default('after_tax'),
+
+  // Multi Terminal POS
+  multiTerminal: boolean('multi_terminal').default(false),
+  terminals: jsonb('terminals').$type<string[]>(),
 
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
@@ -120,8 +131,22 @@ export const outletSettings = pgTable('outlet_settings', {
 
   promotionTaxModeOverride: varchar('promotion_tax_mode_override', { length: 10 }),
 
+  // Printer override
+  printerHostOverride: varchar('printer_host_override', { length: 100 }),
+  printerPortOverride: integer('printer_port_override'),
+  printerNameOverride: varchar('printer_name_override', { length: 200 }),
+  printerNamesOverride: jsonb('printer_names_override').$type<string[]>(),
+  printerRolesOverride: jsonb('printer_roles_override').$type<Record<string, 'receipt' | 'kitchen' | 'bar'>>(),
+
   // Floor plan override
   activeFloorPlanIds: jsonb('active_floor_plan_ids').$type<string[]>(),
+
+  // Multi Terminal override
+  multiTerminalOverride: boolean('multi_terminal_override'),
+  terminalsOverride: jsonb('terminals_override').$type<string[]>(),
+
+  // Self Order override (outlet-level only)
+  enableSelfOrderOverride: boolean('enable_self_order').default(false),
 
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
@@ -286,6 +311,7 @@ export const cashierSessions = pgTable('cashier_sessions', {
   outletId: uuid('outlet_id').notNull().references(() => outlets.id, { onDelete: 'restrict' }),
   cashierId: uuid('cashier_id').notNull().references(() => users.id, { onDelete: 'restrict' }),
   cashierName: varchar('cashier_name', { length: 100 }).notNull(),
+  terminalName: varchar('terminal_name', { length: 50 }),
   status: varchar('status', { length: 20 }).notNull().default('OPEN'),
   openedAt: timestamp('opened_at').notNull().defaultNow(),
   closedAt: timestamp('closed_at'),
@@ -303,6 +329,19 @@ export const cashierSessions = pgTable('cashier_sessions', {
   settingsSnapshot: jsonb('settings_snapshot').$type<Record<string, any>>(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+// Cash Movements (Cash In & Cash Out)
+export const cashMovements = pgTable('cash_movements', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  outletId: uuid('outlet_id').notNull(),
+  sessionId: uuid('session_id').notNull(),
+  type: varchar('type', { length: 20 }).notNull(), // 'CASH_IN' | 'CASH_OUT'
+  amount: decimal('amount', { precision: 12, scale: 2 }).notNull(),
+  reason: text('reason').notNull(),
+  cashierId: uuid('cashier_id').notNull(),
+  cashierName: varchar('cashier_name', { length: 100 }).notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
 // Orders & Items

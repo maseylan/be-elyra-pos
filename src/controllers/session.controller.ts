@@ -6,6 +6,7 @@ import * as sessionService from '../services/session.service';
 const openSessionSchema = z.object({
   outletId: z.string().uuid(),
   startingCash: z.number().nonnegative(),
+  terminalName: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -13,6 +14,14 @@ const closeSessionSchema = z.object({
   sessionId: z.string().uuid(),
   endingCash: z.number().nonnegative(),
   closingNotes: z.string().optional(),
+});
+
+const createCashMovementSchema = z.object({
+  outletId: z.string().uuid(),
+  sessionId: z.string().uuid(),
+  type: z.enum(['CASH_IN', 'CASH_OUT']),
+  amount: z.number().positive('Nominal harus lebih besar dari 0'),
+  reason: z.string().min(3, 'Alasan minimal 3 karakter'),
 });
 
 const forceCloseSessionSchema = z.object({
@@ -25,13 +34,29 @@ export const getActiveSession = async (req: Request, res: Response, next: NextFu
   try {
     const outletId = (req.query.outletId as string) || (req as any).user?.outletId;
     const cashierId = req.auth?.userId || req.user?.userId || (req.user as any)?.id;
+    const terminalName = req.query.terminalName as string | undefined;
 
     if (!outletId) {
       return res.status(400).json({ error: 'outletId parameter is required' });
     }
 
-    const session = await sessionService.getActiveSession(outletId, cashierId);
+    const session = await sessionService.getActiveSession(outletId, cashierId, terminalName);
     return res.json({ data: session });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getTerminalStatus = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const outletId = (req.query.outletId as string) || (req as any).user?.outletId || req.params.outletId;
+
+    if (!outletId) {
+      return res.status(400).json({ error: 'outletId parameter is required' });
+    }
+
+    const status = await sessionService.getTerminalStatus(outletId);
+    return res.json({ data: status });
   } catch (error) {
     next(error);
   }
@@ -51,6 +76,7 @@ export const openSession = async (req: Request, res: Response, next: NextFunctio
       outletId: parseResult.data.outletId,
       cashierId,
       cashierName,
+      terminalName: parseResult.data.terminalName,
       startingCash: parseResult.data.startingCash,
       notes: parseResult.data.notes,
     });
@@ -130,6 +156,47 @@ export const getSessionHistory = async (req: Request, res: Response, next: NextF
 
     const history = await sessionService.getSessionHistory(targetOutletId, filters);
     return res.json({ data: history });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const createCashMovement = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const parseResult = createCashMovementSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return res.status(400).json({ error: 'Data tidak valid', details: parseResult.error.issues });
+    }
+
+    const cashierId = req.auth?.userId || req.user?.userId || (req.user as any)?.id;
+    const cashierName = req.auth?.name || (req.user as any)?.name || req.auth?.email || 'Kasir';
+
+    const movement = await sessionService.createCashMovement({
+      outletId: parseResult.data.outletId,
+      sessionId: parseResult.data.sessionId,
+      type: parseResult.data.type,
+      amount: parseResult.data.amount,
+      reason: parseResult.data.reason,
+      cashierId,
+      cashierName,
+    });
+
+    return res.status(201).json({ message: 'Transaksi kas berhasil dicatat', data: movement });
+  } catch (error: any) {
+    if (error instanceof HttpError) return res.status(error.statusCode).json({ error: error.message });
+    next(error);
+  }
+};
+
+export const getCashMovements = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const sessionId = (req.query.sessionId as string) || (req.params.sessionId as string);
+    if (!sessionId) {
+      return res.status(400).json({ error: 'sessionId parameter is required' });
+    }
+
+    const movements = await sessionService.getCashMovements(sessionId);
+    return res.json({ data: movements });
   } catch (error) {
     next(error);
   }

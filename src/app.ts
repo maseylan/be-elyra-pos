@@ -11,6 +11,7 @@ import superadminAuthRouter from './routes/superadmin-auth.routes';
 import ownerBillingAuthRouter from './routes/owner-billing-auth.routes';
 import ownerBillingRouter from './routes/owner-billing.routes';
 import tenantAuthRouter from './routes/tenant-auth.routes';
+import publicSelfOrderRouter from './routes/public-self-order.routes';
 import { getCashiers } from './controllers/user.controller';
 import { HttpError } from './utils/errors';
 import { sanitizeError } from './utils/sanitizeError';
@@ -63,6 +64,7 @@ const publicGroup = express.Router();
 publicGroup.get('/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
 publicGroup.use('/auth/superadmin', superadminAuthRouter);
 publicGroup.use('/auth/owner', ownerBillingAuthRouter);
 publicGroup.use('/billing', requireAuth, ownerBillingRouter);
@@ -78,6 +80,7 @@ app.use(trackPerTenantRequest);
 // --- GRUP 2: Butuh tenant context, TIDAK butuh JWT valid ---
 const tenantGroup = express.Router();
 tenantGroup.use('/auth', tenantAuthRouter);
+tenantGroup.use('/public/outlets', publicSelfOrderRouter);
 app.use('/api', tenantGroup);
 
 // --- GRUP 3: Butuh tenant context DAN JWT valid ---

@@ -9,19 +9,35 @@ import { eq } from 'drizzle-orm';
 import crypto from 'crypto';
 import { encryptDbUrl, decryptDbUrl } from './dbUrlEncryption';
 import { tenantDbManager } from '../db/tenant-connection';
+import fs from 'fs';
 
 async function getTenantDbUrl(tenantId: string): Promise<string> {
   const [tenant] = await publicDb.select({
     databaseUrl: tenants.databaseUrl,
   }).from(tenants).where(eq(tenants.id, tenantId));
 
-  if (tenant?.databaseUrl) return decryptDbUrl(tenant.databaseUrl);
+  let urlStr = tenant?.databaseUrl ? decryptDbUrl(tenant.databaseUrl) : null;
 
-  const defaultUrl = process.env.TENANT_DEFAULT_DB_URL || process.env.DATABASE_URL;
-  if (!defaultUrl) throw new Error('TENANT_DEFAULT_DB_URL or DATABASE_URL must be set');
-  const baseUrl = new URL(defaultUrl);
-  baseUrl.pathname = `/${tenantId}`;
-  return baseUrl.toString();
+  if (!urlStr) {
+    const defaultUrl = process.env.TENANT_DEFAULT_DB_URL || process.env.DATABASE_URL;
+    if (!defaultUrl) throw new Error('TENANT_DEFAULT_DB_URL or DATABASE_URL must be set');
+    const baseUrl = new URL(defaultUrl);
+    baseUrl.pathname = `/${tenantId}`;
+    urlStr = baseUrl.toString();
+  }
+
+  const isDocker = fs.existsSync('/.dockerenv');
+  if (isDocker) {
+    if (urlStr.includes('@localhost:5433') || urlStr.includes('@127.0.0.1:5433')) {
+      urlStr = urlStr.replace(/@(localhost|127\.0\.0\.1):5433/, '@postgres:5432');
+    }
+  } else {
+    if (urlStr.includes('@postgres:5432')) {
+      urlStr = urlStr.replace('@postgres:5432', '@localhost:5433');
+    }
+  }
+
+  return urlStr;
 }
 
 async function ensureTenantDatabase(tenantId: string) {

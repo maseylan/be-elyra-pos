@@ -1,81 +1,121 @@
-version: '3.8'
 services:
   postgres:
     image: postgres:15
     container_name: pos_postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: root
-      POSTGRES_PASSWORD: rootpassword
-      POSTGRES_DB: pos_db
+      POSTGRES_USER: ${POSTGRES_USER:-root}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rootpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-pos_db}
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U root -d pos_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-root} -d ${POSTGRES_DB:-pos_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   pgbouncer:
     image: edoburu/pgbouncer:latest
     container_name: pos_pgbouncer
+    restart: unless-stopped
     environment:
-      DB_USER: root
-      DB_PASSWORD: rootpassword
+      DB_USER: ${POSTGRES_USER:-root}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-rootpassword}
       DB_HOST: postgres
-      DB_NAME: pos_db
+      DB_NAME: ${POSTGRES_DB:-pos_db}
       AUTH_TYPE: scram-sha-256
       POOL_MODE: transaction
       MAX_CLIENT_CONN: 1000
       DEFAULT_POOL_SIZE: 20
       IGNORE_STARTUP_PARAMETERS: extra_float_digits
     ports:
-      - "6433:5432"
+      - "127.0.0.1:6433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 5432 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     depends_on:
       postgres:
         condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   redis:
     image: redis:7-alpine
     container_name: pos_redis
+    restart: unless-stopped
     ports:
-      - "6380:6379"
+      - "127.0.0.1:6380:6379"
     volumes:
       - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   backend:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: pos_backend
+    restart: unless-stopped
     ports:
       - "3000:3000"
-    command: sh -c "npm install && npm run dev"
-    volumes:
-      - ./:/app
-      - /app/node_modules
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    command: pm2-runtime start ecosystem.config.js --env production
+    env_file:
+      - .env
     environment:
+      - NODE_ENV=production
       - PORT=3000
-      - NODE_ENV=development
-      - DATABASE_URL=postgres://root:rootpassword@postgres:5432/pos_db
-      - PGBOUNCER_URL=postgres://root:rootpassword@pgbouncer:5432/pos_db
+      - DATABASE_URL=postgres://${POSTGRES_USER:-root}:${POSTGRES_PASSWORD:-rootpassword}@postgres:5432/${POSTGRES_DB:-pos_db}
+      - PGBOUNCER_URL=postgres://${POSTGRES_USER:-root}:${POSTGRES_PASSWORD:-rootpassword}@pgbouncer:5432/${POSTGRES_DB:-pos_db}
       - REDIS_URL=redis://redis:6379
-      - JWT_ACCESS_SECRET=your_super_secret_access_key
-      - JWT_REFRESH_SECRET=your_super_secret_refresh_key
-      - CORS_ALLOWED_DOMAINS=http://localhost:5173,https://elyrapos.my.id
-      - MIDTRANS_SERVER_KEY=your_midtrans_server_key
-      - MIDTRANS_CLIENT_KEY=your_midtrans_client_key
-      - MIDTRANS_IS_PRODUCTION=false
+      - JWT_SECRET=${JWT_SECRET:-your_super_secret_jwt_key_here}
+      - DB_URL_ENCRYPTION_KEY=${DB_URL_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      - ROOT_DOMAIN=${ROOT_DOMAIN:-elyrapos.my.id}
+      - CORS_ALLOWED_DOMAINS=${CORS_ALLOWED_DOMAINS:-https://elyrapos.my.id}
+      - FRONTEND_URL=${FRONTEND_URL:-https://elyrapos.my.id}
+    volumes:
+      - backend_logs:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "node -e 'require(\"http\").get(\"http://localhost:3000/api/health\", (r) => r.statusCode === 200 ? process.exit(0) : process.exit(1))'"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     depends_on:
       postgres:
         condition: service_healthy
       pgbouncer:
-        condition: service_started
+        condition: service_healthy
       redis:
-        condition: service_started
-    restart: always
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   pgdata:
   redisdata:
+  backend_logs:
+

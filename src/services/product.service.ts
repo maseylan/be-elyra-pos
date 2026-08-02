@@ -374,6 +374,10 @@ export async function updateProduct(id: string, input: Partial<CreateProductInpu
     const payload: any = { ...input };
     payload.updatedAt = new Date();
     delete payload.outletIds;
+    delete payload.variants;
+    delete payload.stock;
+    delete payload.modifierGroups;
+    delete payload.addOns;
     
     if (input.costPrice !== undefined) payload.costPrice = String(input.costPrice);
     if (input.sellPrice !== undefined) payload.sellPrice = String(input.sellPrice);
@@ -405,13 +409,14 @@ export async function updateProduct(id: string, input: Partial<CreateProductInpu
           id: crypto.randomUUID(),
           outletId,
           productId: id,
+          variantId: null,
           stock: 0,
           isAvailable: true,
         }));
         await tx.insert(schema.outletProducts)
           .values(outletProductsToInsert)
           .onConflictDoUpdate({
-            target: [schema.outletProducts.outletId, schema.outletProducts.productId],
+            target: [schema.outletProducts.outletId, schema.outletProducts.productId, schema.outletProducts.variantId],
             set: { isAvailable: true, updatedAt: new Date() }
           });
       }
@@ -432,12 +437,13 @@ export async function updateProduct(id: string, input: Partial<CreateProductInpu
           id: crypto.randomUUID(),
           outletId,
           productId: id,
+          variantId: null,
           isAvailable: true,
         }));
         await tx.insert(schema.outletProducts)
           .values(outletProductsToInsert)
           .onConflictDoUpdate({
-            target: [schema.outletProducts.outletId, schema.outletProducts.productId],
+            target: [schema.outletProducts.outletId, schema.outletProducts.productId, schema.outletProducts.variantId],
             set: { isAvailable: true, updatedAt: new Date() }
           });
       } else {

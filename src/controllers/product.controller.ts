@@ -10,7 +10,7 @@ const createProductSchema = z.object({
   barcode: z.string().max(64).nullable().optional(),
   name: z.string().min(1).max(255),
   costPrice: z.number().nonnegative(),
-  sellPrice: z.number().positive(),
+  sellPrice: z.number().nonnegative(),
   taxType: z.enum(['inclusive', 'exclusive', 'none']).default('none'),
   taxRate: z.number().min(0).max(100).optional().nullable(),
   type: z.enum(['STOCK', 'NON_STOCK', 'SERVICES']).default('STOCK'),

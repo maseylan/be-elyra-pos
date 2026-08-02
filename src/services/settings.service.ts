@@ -10,6 +10,11 @@ const DEFAULT_SETTINGS = {
   defaultTaxRate: '0',
   taxType: 'none',
   receiptFooter: null,
+  printerHost: null,
+  printerPort: null,
+  printerName: null,
+  printerNames: null,
+  printerRoles: null,
   timezone: 'Asia/Jakarta',
   currency: 'IDR',
   dateFormat: 'DD/MM/YYYY',
@@ -23,6 +28,8 @@ const DEFAULT_SETTINGS = {
   decimalPrecision: 0,
   orderSequenceReset: 'daily',
   paymentMethods: null,
+  multiTerminal: false,
+  terminals: null,
 };
 
 export const getTenantSettings = async () => {

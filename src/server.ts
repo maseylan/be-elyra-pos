@@ -9,9 +9,11 @@ import app from './app';
 import redisClient, { connectRedis } from './config/redis';
 import { publicPool, adminPool } from './db/poolManager';
 import { tenantDbManager } from './db/tenant-connection';
+import { initSocket } from './socket';
 
 const PORT = process.env.PORT || 3000;
 const server = http.createServer(app);
+initSocket(server);
 
 process.on('unhandledRejection', (reason) => {
   console.error('[Server] Unhandled Rejection:', reason);

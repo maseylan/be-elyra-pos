@@ -25,7 +25,8 @@ import { resolveOutletContext } from './middlewares/outlet-context.middleware';
 import { createVariant, getVariants, updateVariant, deleteVariant, updateOutletVariant } from './controllers/variant.controller';
 import { createModifierGroup, getModifierGroups, createModifier, updateModifierGroup, updateModifier, deleteModifier, updateOutletModifier } from './controllers/modifier.controller';
 import { createAddOn, getAddOns, attachAddOn, detachAddOn, updateOutletAddOn } from './controllers/addon.controller';
-import { getActiveSession, openSession, closeSession, forceCloseSession, getSessionHistory } from './controllers/session.controller';
+import { getActiveSession, openSession, closeSession, forceCloseSession, getSessionHistory, getTerminalStatus, createCashMovement, getCashMovements } from './controllers/session.controller';
+import { getPendingQROrders, claimPendingQROrder } from './controllers/self-order.controller';
 import { printRaw } from './controllers/print.controller';
 
 const apiRouter = Router();
@@ -105,12 +106,17 @@ apiRouter.put('/settings/outlet/:outletId', requireAdminOrOwner, updateOutletSet
 const requireSupervisorOrAdmin = requireRole(['supervisor', 'admin', 'owner']);
 
 apiRouter.get('/sessions/active', resolveOutletContext, getActiveSession);
+apiRouter.get('/sessions/terminals', resolveOutletContext, getTerminalStatus);
 apiRouter.post('/sessions/open', resolveOutletContext, openSession);
 apiRouter.post('/sessions/close', resolveOutletContext, closeSession);
+apiRouter.post('/sessions/cash-movement', resolveOutletContext, createCashMovement);
+apiRouter.get('/sessions/cash-movements', resolveOutletContext, getCashMovements);
 apiRouter.post('/sessions/:id/force-close', requireSupervisorOrAdmin, forceCloseSession);
 apiRouter.get('/sessions', resolveOutletContext, requireSupervisorOrAdmin, getSessionHistory);
 
 // Order routes (outlet context required — resolved via X-Outlet-Id header)
+apiRouter.get('/orders/pending-qr', resolveOutletContext, getPendingQROrders);
+apiRouter.post('/orders/:orderId/claim-qr', resolveOutletContext, claimPendingQROrder);
 apiRouter.post('/orders', resolveOutletContext, createOrder);
 apiRouter.get('/orders/summary', resolveOutletContext, getOrderSummary);
 apiRouter.get('/orders', resolveOutletContext, listOrders);
