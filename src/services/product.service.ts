@@ -511,6 +511,19 @@ export async function listProducts(params: { page: number; limit: number; catego
     }
     
     const includeImages = params.includeImages !== false;
+
+    // Aggregate stock per product (sum across outlets + variants, same semantic as getProductById)
+    const stockRows = await tx.select({
+      productId: schema.outletProducts.productId,
+      totalStock: sql<number>`COALESCE(SUM(${schema.outletProducts.stock}), 0)`,
+    })
+    .from(schema.outletProducts)
+    .where(inArray(schema.outletProducts.productId, productIds))
+    .groupBy(schema.outletProducts.productId);
+
+    const stockMap: Record<string, number> = {};
+    stockRows.forEach((s: any) => { stockMap[s.productId] = Number(s.totalStock || 0); });
+
     const data = rows.map((r: any) => {
       const p = r.products;
       const cat = r.categories;
@@ -519,6 +532,7 @@ export async function listProducts(params: { page: number; limit: number; catego
         costPrice: parseFloat(p.costPrice),
         sellPrice: parseFloat(p.sellPrice),
         taxRate: p.taxRate ? parseFloat(p.taxRate) : undefined,
+        stock: stockMap[p.id] ?? 0,
         availableAt: p.isGlobal ? [{ outletName: 'Semua Outlet' }] : (availableAtMap[p.id] || []),
         categoryName: cat?.name || null,
       };
