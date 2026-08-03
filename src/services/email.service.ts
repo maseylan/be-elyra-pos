@@ -25,7 +25,13 @@ function getTransporter(): nodemailer.Transporter {
 }
 
 function loadTemplate(name: string, vars: Record<string, string>): string {
-  const p = path.join(__dirname, '../templates/email', `${name}.html`);
+  // tsc doesn't copy .html assets: in dist/, fall back to the source tree
+  const candidates = [
+    path.join(__dirname, '../templates/email', `${name}.html`),
+    path.join(__dirname, '../../src/templates/email', `${name}.html`),
+  ];
+  const p = candidates.find((c) => fs.existsSync(c));
+  if (!p) throw new Error(`Email template not found: ${name}.html (looked in ${candidates.join(', ')})`);
   let html = fs.readFileSync(p, 'utf-8');
   for (const [k, v] of Object.entries(vars)) {
     html = html.replaceAll(`{${k}}`, v);
