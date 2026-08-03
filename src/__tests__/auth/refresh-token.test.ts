@@ -157,5 +157,35 @@ describe('Refresh token flow (per identitas)', () => {
       await expect(result1).resolves.toBeTruthy();
       await expect(result2).rejects.toThrow(HttpError);
     });
+
+    it('principal dinonaktifkan → refresh ditolak dan token direvoke', async () => {
+      const { plain, hash } = generateRefreshToken();
+      const mockDb = createMockDb();
+      const deleteMock = mockDb.mockTx.delete;
+
+      mockTxSelect(mockDb.mockTx, [{
+        id: 'rt-1',
+        userId: 'user-1',
+        tokenHash: hash,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      }]);
+
+      await expect(
+        rotateRefreshToken(
+          plain,
+          { tokenHash: 'hash' },
+          mockDb,
+          (existing: any) => ({
+            sessionType: 'tenant-operational' as const,
+            role: 'cashier' as const,
+            userId: existing.userId,
+            tenantId: 'tenant_123',
+          }),
+          async () => { throw new HttpError(401, 'Akun tidak ditemukan atau dinonaktifkan'); },
+        ),
+      ).rejects.toThrow(HttpError);
+
+      expect(deleteMock).toHaveBeenCalled();
+    });
   });
 });

@@ -13,6 +13,7 @@ vi.mock('../config/redis', () => ({
   default: {
     get: vi.fn(),
     setEx: vi.fn(() => Promise.resolve('OK')),
+    incr: vi.fn(() => Promise.resolve(1)),
   }
 }));
 
@@ -23,7 +24,10 @@ vi.mock('../db/poolManager', () => ({
         where: vi.fn((cond) => {
           return [{
             id: 'tenant_mock',
-            applicationStatus: 'provisioned'
+            applicationStatus: 'provisioned',
+            subscriptionType: 'starter',
+            nextBillingCycle: null,
+            isActive: true,
           }];
         })
       }))
@@ -54,6 +58,25 @@ vi.mock('../middlewares/require-session-type.middleware', () => ({
   requireSessionType: () => (req: any, res: any, next: any) => next(),
 }));
 
+vi.mock('../middlewares/outlet-context.middleware', () => ({
+  resolveOutletContext: (req: any, res: any, next: any) => next(),
+}));
+
+// Mock product service so the test only exercises tenant-context isolation,
+// not a live tenant database
+vi.mock('../services/product.service', () => ({
+  listProducts: vi.fn(async () => {
+    const { getCurrentTenant } = await vi.importActual<typeof import('../contexts/tenant-context')>('../contexts/tenant-context');
+    const tenantId = getCurrentTenant().tenantId;
+    return {
+      data: [{ name: tenantId === 'tenant_a' ? 'Produk A Only' : 'Produk B Only' }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    };
+  }),
+}));
+
 describe('Tenant Resolution Middleware', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -81,10 +104,10 @@ describe('Tenant Resolution Middleware', () => {
     // Override redis mock for this specific test
     vi.mocked(redisClient.get).mockImplementation((key) => {
       if (key === 'tenant:resolve:tenanta') {
-        return Promise.resolve(JSON.stringify({ tenantId: 'tenant_a', status: 'provisioned' }));
+        return Promise.resolve(JSON.stringify({ tenantId: 'tenant_a', status: 'provisioned', isActive: true }));
       }
       if (key === 'tenant:resolve:tenantb') {
-        return Promise.resolve(JSON.stringify({ tenantId: 'tenant_b', status: 'provisioned' }));
+        return Promise.resolve(JSON.stringify({ tenantId: 'tenant_b', status: 'provisioned', isActive: true }));
       }
       return Promise.resolve(null);
     });

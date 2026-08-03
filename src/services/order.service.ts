@@ -1,8 +1,9 @@
 import { withTenantDb } from '../db/with-tenant-db';
 import * as schema from '../db/tenant_schema';
 import * as loyaltyService from './loyalty.service';
-import { eq, desc, sql, and, gte, lte, or, isNull } from 'drizzle-orm';
+import { eq, desc, sql, and, gte, lte, or, isNull, inArray } from 'drizzle-orm';
 import crypto from 'crypto';
+import { HttpError } from '../utils/errors';
 
 interface CreateOrderInput {
   items: Array<{
@@ -41,64 +42,93 @@ function padSeq(n: number, len = 4): string {
 
 export async function createOrder(outletId: string, input: CreateOrderInput) {
   return withTenantDb(async (tx) => {
-    // Verify item prices against DB
     const productIds = [...new Set(input.items.map(i => i.productId))];
-    const variantIds = input.items.map(i => i.variantId).filter(Boolean) as string[];
-    const dbResults = await Promise.all(
-      productIds.map(id => tx.select().from(schema.products).where(eq(schema.products.id, id)).limit(1))
-    );
-    const dbProducts = dbResults.map(r => r[0]).filter(Boolean) as any[];
-    const variantResults = variantIds.length > 0
-      ? await Promise.all(variantIds.map(id => tx.select().from(schema.productVariants).where(eq(schema.productVariants.id, id)).limit(1)))
-      : [];
-    const dbVariants = variantResults.map(r => r[0]).filter(Boolean) as any[];
-    const productPriceMap = new Map(dbProducts.map(p => [p.id, Number(p.sellPrice)]));
-    const variantPriceMap = new Map(dbVariants.map(v => [v.id, Number(v.price)]));
-    for (const item of input.items) {
-      const dbPrice = item.variantId ? variantPriceMap.get(item.variantId) : productPriceMap.get(item.productId);
-      if (dbPrice === undefined) throw new Error(`Product not found: ${item.productName || item.productId}`);
-      if (item.price < dbPrice) {
-        throw new Error(`Price mismatch for ${item.productName || item.productId}: client ${item.price} < DB ${dbPrice}`);
-      }
-      if (item.price > dbPrice) {
-        throw new Error(`Price mismatch for ${item.productName || item.productId}: client ${item.price} > DB ${dbPrice}`);
-      }
-      if (Math.round(Number(item.subtotal)) !== Math.round(item.price * item.quantity)) {
-        throw new Error(`Subtotal mismatch for ${item.productName || item.productId}: ${item.subtotal} !== ${item.price * item.quantity}`);
-      }
+    const variantIds = [...new Set(input.items.map(i => i.variantId).filter(Boolean) as string[])];
+    const modifierIds = [...new Set(input.items.flatMap(i => i.selectedModifiers?.map((m: any) => m.id).filter(Boolean) || []))] as string[];
+    const addOnIds = [...new Set(input.items.flatMap(i => i.selectedAddOns?.map((a: any) => a.id).filter(Boolean) || []))] as string[];
+
+    if (input.items.some((item) => item.selectedModifiers?.some((m: any) => !m.id) || item.selectedAddOns?.some((a: any) => !a.id))) {
+      throw new HttpError(400, 'Modifier dan add-on harus memiliki ID yang valid.');
     }
 
-    // Enforce active session for checkout
-    let activeSessionQuery = tx
+    const [dbProducts, dbVariants, dbOutletProducts, dbModifierGroups, dbModifiers, dbOutletModifiers, dbProductAddOns, dbAddOns, dbOutletAddOns] = await Promise.all([
+      tx.select().from(schema.products).where(inArray(schema.products.id, productIds)),
+      variantIds.length ? tx.select().from(schema.productVariants).where(inArray(schema.productVariants.id, variantIds)) : [],
+      tx.select().from(schema.outletProducts).where(and(eq(schema.outletProducts.outletId, outletId), inArray(schema.outletProducts.productId, productIds))),
+      tx.select().from(schema.modifierGroups).where(inArray(schema.modifierGroups.productId, productIds)),
+      modifierIds.length ? tx.select().from(schema.modifiers).where(inArray(schema.modifiers.id, modifierIds)) : [],
+      modifierIds.length ? tx.select().from(schema.outletModifiers).where(and(eq(schema.outletModifiers.outletId, outletId), inArray(schema.outletModifiers.modifierId, modifierIds))) : [],
+      addOnIds.length ? tx.select().from(schema.productAddOns).where(and(inArray(schema.productAddOns.productId, productIds), inArray(schema.productAddOns.addOnId, addOnIds))) : [],
+      addOnIds.length ? tx.select().from(schema.addOns).where(inArray(schema.addOns.id, addOnIds)) : [],
+      addOnIds.length ? tx.select().from(schema.outletAddOns).where(and(eq(schema.outletAddOns.outletId, outletId), inArray(schema.outletAddOns.addOnId, addOnIds))) : [],
+    ]);
+
+    const pricedItems = input.items.map((item) => {
+      const product = dbProducts.find((row: any) => row.id === item.productId);
+      const variant = item.variantId ? dbVariants.find((row: any) => row.id === item.variantId && row.productId === item.productId) : undefined;
+      if (!product || (item.variantId && !variant)) throw new HttpError(404, `Product not found: ${item.productName || item.productId}`);
+      if (product.isActive === false || (variant && variant.isActive === false)) throw new HttpError(400, `Product tidak aktif: ${item.productName || item.productId}`);
+
+      const outletProduct = dbOutletProducts.find((row: any) => row.productId === item.productId && (row.variantId || null) === (item.variantId || null));
+      if (!outletProduct) throw new HttpError(400, `Product tidak tersedia di outlet ini: ${item.productName || item.productId}`);
+      if (outletProduct.isAvailable === false) throw new HttpError(400, `Product sedang tidak tersedia: ${item.productName || item.productId}`);
+
+      const selectedModifiers = (item.selectedModifiers || []).map(({ id }: any) => {
+        const modifier = dbModifiers.find((row: any) => row.id === id);
+        const group = modifier && dbModifierGroups.find((row: any) => row.id === modifier.groupId && row.productId === item.productId);
+        const override = dbOutletModifiers.find((row: any) => row.modifierId === id);
+        if (!modifier || !group || override?.isAvailable === false) throw new HttpError(400, 'Modifier tidak valid atau tidak tersedia.');
+        return { id: modifier.id, name: modifier.name, price: Number(override?.priceAdjustment ?? modifier.priceAdjustment) };
+      });
+
+      const selectedAddOns = (item.selectedAddOns || []).map(({ id }: any) => {
+        const addOn = dbAddOns.find((row: any) => row.id === id);
+        const attached = dbProductAddOns.some((row: any) => row.productId === item.productId && row.addOnId === id);
+        const override = dbOutletAddOns.find((row: any) => row.addOnId === id);
+        if (!addOn || !attached || override?.isAvailable === false) throw new HttpError(400, 'Add-on tidak valid atau tidak tersedia.');
+        return { id: addOn.id, name: addOn.name, price: Number(override?.price ?? addOn.price) };
+      });
+
+      const basePrice = Number(outletProduct.sellPriceOverride ?? variant?.price ?? product.sellPrice);
+      const unitPrice = basePrice + selectedModifiers.reduce((sum, row) => sum + row.price, 0) + selectedAddOns.reduce((sum, row) => sum + row.price, 0);
+
+      if (Math.abs(item.price - unitPrice) > 1) {
+        throw new HttpError(400, `Price mismatch for ${item.productName || item.productId}: client ${item.price}, server ${unitPrice}`);
+      }
+
+      return { ...item, selectedModifiers, selectedAddOns, price: unitPrice, subtotal: unitPrice * item.quantity };
+    });
+
+    const serverSubtotal = pricedItems.reduce((sum, item) => sum + item.subtotal, 0);
+    if (Math.abs(input.subtotal - serverSubtotal) > 1) {
+      throw new HttpError(400, `Subtotal mismatch: client ${input.subtotal}, server ${serverSubtotal}`);
+    }
+
+    // Enforce active session for checkout — lock the row so a concurrent close waits
+    const sessionConditions = [
+      eq(schema.cashierSessions.outletId, outletId),
+      eq(schema.cashierSessions.status, 'OPEN'),
+    ];
+    if (input.cashierId) sessionConditions.push(eq(schema.cashierSessions.cashierId, input.cashierId));
+
+    let [activeSession] = await tx
       .select()
       .from(schema.cashierSessions)
-      .where(
-        and(
-          eq(schema.cashierSessions.outletId, outletId),
-          eq(schema.cashierSessions.status, 'OPEN'),
-          ...(input.cashierId ? [eq(schema.cashierSessions.cashierId, input.cashierId)] : [])
-        )
-      )
+      .where(and(...sessionConditions))
+      .for('update')
       .limit(1);
 
-    let [activeSession] = await activeSessionQuery;
-
-    // Fallback: check any open session for the outlet if specific cashier match not found
     if (!activeSession && input.cashierId) {
       [activeSession] = await tx
         .select()
         .from(schema.cashierSessions)
-        .where(
-          and(
-            eq(schema.cashierSessions.outletId, outletId),
-            eq(schema.cashierSessions.status, 'OPEN')
-          )
-        )
+        .where(and(eq(schema.cashierSessions.outletId, outletId), eq(schema.cashierSessions.status, 'OPEN')))
+        .for('update')
         .limit(1);
     }
 
     if (!activeSession) {
-      throw new Error('No active cashier session found for this outlet. Please open shift register before completing orders.');
+      throw new HttpError(409, 'No active cashier session found for this outlet. Please open shift register before completing orders.');
     }
 
     // Fetch outlet + settings for order number generation and tax validation
@@ -111,19 +141,40 @@ export async function createOrder(outletId: string, input: CreateOrderInput) {
     const seqReset = override?.orderSequenceResetOverride ?? tenantDefault?.orderSequenceReset ?? 'daily';
     const allowNegativeStock = override?.allowNegativeStockOverride ?? tenantDefault?.allowNegativeStock ?? false;
 
-    // Validate tax amount against configured rate (matching FE calculation)
+    // Server-side tax calculation (matching FE calculation)
     const taxRate = Number(override?.taxRateOverride ?? tenantDefault?.defaultTaxRate ?? 0);
     const taxType = override?.taxTypeOverride ?? tenantDefault?.taxType ?? 'none';
     const promotionTaxMode = override?.promotionTaxModeOverride ?? tenantDefault?.promotionTaxMode ?? 'after_tax';
-    if (taxType !== 'none' && taxRate > 0) {
-      const promoDiscount = Math.max(0, Number(input.promoDiscount || 0));
-      const taxableBase = promotionTaxMode === 'before_tax' ? Math.max(0, input.subtotal - promoDiscount) : input.subtotal;
-      const expectedTax = taxType === 'inclusive'
+    const promoDiscount = Math.max(0, Number(input.promoDiscount || 0));
+    const taxableBase = promotionTaxMode === 'before_tax' ? Math.max(0, serverSubtotal - promoDiscount) : serverSubtotal;
+    const serverTax = taxType === 'none' || taxRate <= 0
+      ? 0
+      : taxType === 'inclusive'
         ? Math.round(taxableBase * taxRate / (100 + taxRate))
         : Math.round(taxableBase * taxRate / 100);
-      if (Math.abs(input.taxAmount - expectedTax) > 1) {
-        throw new Error(`Tax mismatch: client ${input.taxAmount}, expected ~${expectedTax} (rate ${taxRate}%)`);
-      }
+
+    // Handle coupon if provided — use server-calculated discountAmount
+    let couponId: string | undefined;
+    let serverDiscount = Math.min(Math.max(0, input.discountAmount), serverSubtotal);
+    if (input.couponCode && input.discountAmount > 0) {
+      const result = await loyaltyService.validateCoupon(input.couponCode, serverSubtotal, input.memberId, outletId, tx);
+      couponId = result.coupon.id;
+      serverDiscount = result.discountAmount;
+    }
+
+    const serverTotal = Math.round((taxType === 'inclusive' ? serverSubtotal : serverSubtotal + serverTax) - serverDiscount + input.roundingAmount);
+    if (Math.abs(input.totalAmount - serverTotal) > 1) {
+      throw new HttpError(400, `Total mismatch: client ${input.totalAmount}, server ${serverTotal}`);
+    }
+    if (Math.abs(input.taxAmount - serverTax) > 1) {
+      throw new HttpError(400, `Tax mismatch: client ${input.taxAmount}, server ~${serverTax} (rate ${taxRate}%)`);
+    }
+    if (input.amountPaid > 0 && input.amountPaid + 1 < serverTotal) {
+      throw new HttpError(400, `Pembayaran tidak mencukupi: dibayar ${input.amountPaid}, total ${serverTotal}`);
+    }
+    const serverChange = input.amountPaid > 0 ? Math.max(0, input.amountPaid - serverTotal) : 0;
+    if (Math.abs(input.changeAmount - serverChange) > 1) {
+      throw new HttpError(400, `Change mismatch: client ${input.changeAmount}, server ${serverChange}`);
     }
 
     let orderNumber: string | undefined;
@@ -155,29 +206,20 @@ export async function createOrder(outletId: string, input: CreateOrderInput) {
         .replace(/\{SEQ\}/g, padSeq(seq));
     }
 
-    // Handle coupon if provided — use server-calculated discountAmount
-    let couponId: string | undefined;
-    let serverDiscount = input.discountAmount;
-    if (input.couponCode && input.discountAmount > 0) {
-      const result = await loyaltyService.validateCoupon(input.couponCode, input.subtotal, input.memberId, outletId);
-      couponId = result.coupon.id;
-      serverDiscount = result.discountAmount;
-    }
-
     const [order] = await tx.insert(schema.orders).values({
       id: crypto.randomUUID(),
       idempotencyKey: input.idempotencyKey,
       outletId,
       sessionId: activeSession.id,
-      subtotal: String(input.subtotal),
-      taxAmount: String(input.taxAmount),
+      subtotal: String(serverSubtotal),
+      taxAmount: String(serverTax),
       discountAmount: String(serverDiscount),
-      totalAmount: String((taxType === 'inclusive' ? input.subtotal : input.subtotal + input.taxAmount) - serverDiscount + input.roundingAmount),
+      totalAmount: String(serverTotal),
       roundingAmount: String(input.roundingAmount),
       orderNumber,
       paymentMethod: input.paymentMethod,
       amountPaid: String(input.amountPaid),
-      changeAmount: String(input.changeAmount),
+      changeAmount: String(serverChange),
       tableNumber: input.tableNumber,
       cashierId: input.cashierId,
       cashierName: input.cashierName,
@@ -187,9 +229,9 @@ export async function createOrder(outletId: string, input: CreateOrderInput) {
       status: 'completed',
     }).returning();
 
-    if (input.items.length > 0) {
+    if (pricedItems.length > 0) {
       await tx.insert(schema.orderItems).values(
-        input.items.map(item => {
+        pricedItems.map(item => {
           const optionsParts: string[] = [];
           if (item.selectedModifiers && item.selectedModifiers.length > 0) {
             optionsParts.push(item.selectedModifiers.map((m: any) => m.name).join(', '));
@@ -206,6 +248,7 @@ export async function createOrder(outletId: string, input: CreateOrderInput) {
             id: crypto.randomUUID(),
             orderId: order.id,
             productId: item.productId,
+            variantId: item.variantId || null,
             productName: item.productName,
             quantity: item.quantity,
             price: String(item.price),
@@ -216,46 +259,44 @@ export async function createOrder(outletId: string, input: CreateOrderInput) {
       );
     }
 
-    // Deduct stock for each item (variant or base product)
-    for (const item of input.items) {
+    // Deduct stock for each item (variant or base product) — atomic conditional update
+    for (const item of pricedItems) {
       const condition = and(
         eq(schema.outletProducts.outletId, outletId),
         eq(schema.outletProducts.productId, item.productId),
         item.variantId ? eq(schema.outletProducts.variantId, item.variantId) : isNull(schema.outletProducts.variantId)
       );
 
+      const stockUpdate = allowNegativeStock
+        ? sql`${schema.outletProducts.stock} - ${item.quantity}`
+        : sql`CASE WHEN ${schema.outletProducts.stock} >= ${item.quantity} THEN ${schema.outletProducts.stock} - ${item.quantity} ELSE ${schema.outletProducts.stock} END`;
+
       const [op] = await tx
-        .select()
-        .from(schema.outletProducts)
+        .update(schema.outletProducts)
+        .set({ stock: stockUpdate, updatedAt: new Date() })
         .where(condition)
-        .limit(1);
+        .returning();
 
-      if (op) {
-        if (op.stock < item.quantity && !allowNegativeStock) {
-          throw new Error(`Stok tidak mencukupi untuk ${item.productName || item.productId}. Sisa: ${op.stock}, diminta: ${item.quantity}`);
-        }
-        const newStock = op.stock - item.quantity;
-        await tx
-          .update(schema.outletProducts)
-          .set({ stock: newStock, updatedAt: new Date() })
-          .where(eq(schema.outletProducts.id, op.id));
-
-        await tx.insert(schema.stockMovements).values({
-          id: crypto.randomUUID(),
-          outletId,
-          productId: item.productId,
-          variantId: item.variantId || null,
-          type: 'sale',
-          quantityChange: -item.quantity,
-          stockAfter: newStock,
-          referenceId: order.id,
-          note: `Order ${order.orderNumber || input.idempotencyKey}`,
-          createdBy: input.cashierId,
-        });
+      if (!op) throw new HttpError(409, `Stok tidak tersedia untuk ${item.productName || item.productId}.`);
+      if (op.stock < 0) {
+        throw new HttpError(409, `Stok tidak mencukupi untuk ${item.productName || item.productId}. Sisa: ${op.stock + item.quantity}, diminta: ${item.quantity}`);
       }
+
+      await tx.insert(schema.stockMovements).values({
+        id: crypto.randomUUID(),
+        outletId,
+        productId: item.productId,
+        variantId: item.variantId || null,
+        type: 'sale',
+        quantityChange: -item.quantity,
+        stockAfter: op.stock,
+        referenceId: order.id,
+        note: `Order ${order.orderNumber || input.idempotencyKey}`,
+        createdBy: input.cashierId,
+      });
     }
 
-    // Record coupon usage
+    // Record coupon usage (coupon row already locked by validateCoupon)
     if (couponId) {
       await tx.insert(schema.loyaltyCouponUsages).values({
         id: crypto.randomUUID(),
@@ -269,34 +310,59 @@ export async function createOrder(outletId: string, input: CreateOrderInput) {
         .where(eq(schema.loyaltyCoupons.id, couponId));
     }
 
-    // Record reward redemption if any
+    // Record reward redemption if any — verify balance, membership, and stock atomically
     if (input.redeemedRewardId && input.memberId) {
-      const [reward] = await tx.select().from(schema.loyaltyRewards).where(eq(schema.loyaltyRewards.id, input.redeemedRewardId)).limit(1);
-      if (reward) {
-        await tx.insert(schema.loyaltyRewardRedemptions).values({
-          id: crypto.randomUUID(),
-          rewardId: reward.id,
-          memberId: input.memberId,
-          orderId: order.id,
-          programId: reward.programId,
-          pointsCost: reward.pointsCost,
-          status: 'claimed',
-          claimedAt: new Date(),
-        });
-        await tx.insert(schema.loyaltyPointsTransactions).values({
-          id: crypto.randomUUID(),
-          memberId: input.memberId,
-          programId: reward.programId,
-          orderId: order.id,
-          outletId,
-          points: -reward.pointsCost,
-          type: 'redeem',
-        });
-        if (reward.stock !== null) {
-          await tx.update(schema.loyaltyRewards)
-            .set({ stock: sql`${schema.loyaltyRewards.stock} - 1` })
-            .where(eq(schema.loyaltyRewards.id, reward.id));
-        }
+      const [reward] = await tx.select().from(schema.loyaltyRewards)
+        .where(eq(schema.loyaltyRewards.id, input.redeemedRewardId))
+        .for('update')
+        .limit(1);
+      if (!reward || reward.isActive === false) throw new HttpError(400, 'Reward tidak valid atau tidak aktif.');
+
+      const [membership] = await tx.select().from(schema.loyaltyMemberPrograms)
+        .where(and(
+          eq(schema.loyaltyMemberPrograms.memberId, input.memberId),
+          eq(schema.loyaltyMemberPrograms.programId, reward.programId),
+        ))
+        .limit(1);
+      if (!membership) throw new HttpError(400, 'Member tidak terdaftar pada program reward ini.');
+
+      if (reward.stock !== null && reward.stock < 1) throw new HttpError(409, 'Stok reward habis.');
+
+      const [balanceRow] = await tx.select({
+        balance: sql<number>`COALESCE(SUM(${schema.loyaltyPointsTransactions.points}), 0)`,
+      })
+        .from(schema.loyaltyPointsTransactions)
+        .where(and(
+          eq(schema.loyaltyPointsTransactions.memberId, input.memberId),
+          eq(schema.loyaltyPointsTransactions.programId, reward.programId),
+        ));
+      if (Number(balanceRow?.balance || 0) < reward.pointsCost) throw new HttpError(400, 'Poin member tidak mencukupi untuk reward ini.');
+
+      await tx.insert(schema.loyaltyRewardRedemptions).values({
+        id: crypto.randomUUID(),
+        rewardId: reward.id,
+        memberId: input.memberId,
+        orderId: order.id,
+        programId: reward.programId,
+        pointsCost: reward.pointsCost,
+        status: 'claimed',
+        claimedAt: new Date(),
+      });
+      await tx.insert(schema.loyaltyPointsTransactions).values({
+        id: crypto.randomUUID(),
+        memberId: input.memberId,
+        programId: reward.programId,
+        orderId: order.id,
+        outletId,
+        points: -reward.pointsCost,
+        type: 'redeem',
+      });
+      if (reward.stock !== null) {
+        const [updatedReward] = await tx.update(schema.loyaltyRewards)
+          .set({ stock: sql`${schema.loyaltyRewards.stock} - 1`, updatedAt: new Date() })
+          .where(and(eq(schema.loyaltyRewards.id, reward.id), sql`${schema.loyaltyRewards.stock} > 0`))
+          .returning();
+        if (!updatedReward) throw new HttpError(409, 'Stok reward habis.');
       }
     }
 
@@ -451,41 +517,37 @@ export async function refundOrder(orderId: string, reason: string, refundedBy?: 
       .for('update')
       .limit(1);
 
-    if (!order) throw new Error('Order not found');
-    if (order.status !== 'completed') throw new Error('Order cannot be refunded (current status: ' + order.status + ')');
+    if (!order) throw new HttpError(404, 'Order not found');
+    if (order.status !== 'completed') throw new HttpError(409, 'Order cannot be refunded (current status: ' + order.status + ')');
 
     const items = await tx
       .select()
       .from(schema.orderItems)
       .where(eq(schema.orderItems.orderId, orderId));
 
-    // Restock items
+    // Restock items — scoped to variant if present, atomic increment
     for (const item of items) {
       const [op] = await tx
-        .select()
-        .from(schema.outletProducts)
+        .update(schema.outletProducts)
+        .set({ stock: sql`${schema.outletProducts.stock} + ${item.quantity}`, updatedAt: new Date() })
         .where(
           and(
             eq(schema.outletProducts.outletId, order.outletId),
-            eq(schema.outletProducts.productId, item.productId)
+            eq(schema.outletProducts.productId, item.productId),
+            item.variantId ? eq(schema.outletProducts.variantId, item.variantId) : isNull(schema.outletProducts.variantId)
           )
         )
-        .limit(1);
+        .returning({ stock: schema.outletProducts.stock });
 
       if (op) {
-        const newStock = op.stock + item.quantity;
-        await tx
-          .update(schema.outletProducts)
-          .set({ stock: newStock, updatedAt: new Date() })
-          .where(eq(schema.outletProducts.id, op.id));
-
         await tx.insert(schema.stockMovements).values({
           id: crypto.randomUUID(),
           outletId: order.outletId,
           productId: item.productId,
+          variantId: item.variantId || null,
           type: 'return',
           quantityChange: item.quantity,
-          stockAfter: newStock,
+          stockAfter: Number(op[0].stock),
           referenceId: order.id,
           note: `Refund: ${reason}`,
           createdBy: refundedBy,
@@ -502,7 +564,7 @@ export async function refundOrder(orderId: string, reason: string, refundedBy?: 
       .where(and(eq(schema.orders.id, orderId), eq(schema.orders.status, 'completed')))
       .returning();
 
-    if (!updated) throw new Error('Order was already refunded by another request');
+    if (!updated) throw new HttpError(409, 'Order was already refunded by another request');
 
     return updated;
   });

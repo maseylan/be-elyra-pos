@@ -38,9 +38,9 @@ apiRouter.use(authorizeTenantAccess);
 const requireAdminOrOwner = requireRole(['admin', 'owner']);
 
 // Protected Tenant Admin/Owner/Cashier Routes
-apiRouter.get('/products', resolveOutletContext, getProducts);
-apiRouter.get('/products/low-stock', resolveOutletContext, getLowStockProducts);
-apiRouter.get('/products/:id', resolveOutletContext, getProductById);
+apiRouter.get('/products', getProducts);
+apiRouter.get('/products/low-stock', getLowStockProducts);
+apiRouter.get('/products/:id', getProductById);
 apiRouter.post('/products', requireAdminOrOwner, createProduct);
 apiRouter.put('/products/:id', requireAdminOrOwner, updateProduct);
 apiRouter.delete('/products/:id', requireAdminOrOwner, deleteProduct);
@@ -50,7 +50,7 @@ apiRouter.post('/products/:productId/variants', requireAdminOrOwner, createVaria
 apiRouter.get('/products/:productId/variants', resolveOutletContext, getVariants);
 apiRouter.patch('/variants/:variantId', requireAdminOrOwner, updateVariant);
 apiRouter.delete('/variants/:variantId', requireAdminOrOwner, deleteVariant);
-apiRouter.put('/outlets/:outletId/variants/:variantId', updateOutletVariant);
+apiRouter.put('/outlets/:outletId/variants/:variantId', requireAdminOrOwner, resolveOutletContext, updateOutletVariant);
 
 // Modifier Group & Item Routes
 apiRouter.post('/products/:productId/modifier-groups', requireAdminOrOwner, createModifierGroup);
@@ -59,7 +59,7 @@ apiRouter.post('/modifier-groups/:groupId/modifiers', requireAdminOrOwner, creat
 apiRouter.patch('/modifier-groups/:groupId', requireAdminOrOwner, updateModifierGroup);
 apiRouter.patch('/modifiers/:modifierId', requireAdminOrOwner, updateModifier);
 apiRouter.delete('/modifiers/:modifierId', requireAdminOrOwner, deleteModifier);
-apiRouter.put('/outlets/:outletId/modifiers/:modifierId', updateOutletModifier);
+apiRouter.put('/outlets/:outletId/modifiers/:modifierId', requireAdminOrOwner, resolveOutletContext, updateOutletModifier);
 
 // Add-on Routes (supporting both /add-ons and /addons endpoints)
 apiRouter.post('/add-ons', requireAdminOrOwner, createAddOn);
@@ -74,8 +74,8 @@ apiRouter.post('/products/:productId/addons', requireAdminOrOwner, attachAddOn);
 apiRouter.delete('/products/:productId/add-ons/:addOnId', requireAdminOrOwner, detachAddOn);
 apiRouter.delete('/products/:productId/addons/:addOnId', requireAdminOrOwner, detachAddOn);
 
-apiRouter.put('/outlets/:outletId/add-ons/:addOnId', updateOutletAddOn);
-apiRouter.put('/outlets/:outletId/addons/:addOnId', updateOutletAddOn);
+apiRouter.put('/outlets/:outletId/add-ons/:addOnId', requireAdminOrOwner, resolveOutletContext, updateOutletAddOn);
+apiRouter.put('/outlets/:outletId/addons/:addOnId', requireAdminOrOwner, resolveOutletContext, updateOutletAddOn);
 
 
 // Stock routes
@@ -124,7 +124,7 @@ apiRouter.patch('/orders/:id/refund', requireAdminOrOwner, refundOrder);
 apiRouter.get('/orders/:id', resolveOutletContext, getOrder);
 
 // Raw ESC/POS print ke printer TCP (host whitelisted loopback)
-apiRouter.post('/print/raw', printRaw);
+apiRouter.post('/print/raw', resolveOutletContext, printRaw);
 
 // Outlet routes
 apiRouter.get('/outlets', listOutlets);

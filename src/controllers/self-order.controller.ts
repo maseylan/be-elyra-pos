@@ -97,7 +97,7 @@ export const createSelfOrder = async (req: Request, res: Response, next: NextFun
 
 export const getPendingQROrders = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const outletId = (req.query.outletId as string) || (req as any).outletId;
+    const outletId = req.outletId;
     if (!outletId) {
       return res.status(400).json({ error: 'outletId is required' });
     }
@@ -112,7 +112,7 @@ export const getPendingQROrders = async (req: Request, res: Response, next: Next
 export const claimPendingQROrder = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const orderId = Array.isArray(req.params.orderId) ? req.params.orderId[0] : req.params.orderId;
-    const outletId = (req.body.outletId as string) || (req as any).outletId;
+    const outletId = req.outletId;
     const cashierId = req.auth?.userId || req.user?.userId || (req.user as any)?.id;
     const cashierName = req.auth?.name || (req.user as any)?.name || 'Kasir';
 

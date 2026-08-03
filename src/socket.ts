@@ -2,15 +2,33 @@ import { Server as HttpServer } from 'http';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import redisClient from './config/redis';
+import { verifyAccessToken } from './services/token.service';
+import { tenantDbManager } from './db/tenant-connection';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { users, userOutlets } from './db/tenant_schema';
+import { eq, and } from 'drizzle-orm';
 
 let io: SocketIOServer | null = null;
 
 export function initSocket(server: HttpServer): SocketIOServer {
   io = new SocketIOServer(server, {
     cors: {
-      origin: '*', // Allow all origins for local & production web POS
+      origin: (process.env.CORS_ALLOWED_DOMAINS || '').split(',').filter(Boolean),
       methods: ['GET', 'POST'],
     },
+  });
+
+  io.use((socket, next) => {
+    try {
+      const token = socket.handshake.auth?.token;
+      if (!token) return next(new Error('Unauthorized'));
+      const auth = verifyAccessToken(token);
+      if (auth.sessionType !== 'tenant-operational' || !auth.tenantId || !auth.userId) return next(new Error('Unauthorized'));
+      socket.data.auth = auth;
+      next();
+    } catch {
+      next(new Error('Unauthorized'));
+    }
   });
 
   // Attempt to attach Redis adapter if Redis is connected
@@ -36,9 +54,14 @@ export function initSocket(server: HttpServer): SocketIOServer {
 
   io.on('connection', (socket: Socket) => {
     // Cashier terminal joins room for specific outlet
-    socket.on('join_outlet', (data: { outletId: string; terminalName?: string }) => {
+    socket.on('join_outlet', async (data: { outletId: string; terminalName?: string }) => {
       if (data?.outletId) {
-        const roomName = `outlet:${data.outletId}`;
+        const auth = socket.data.auth;
+        const db = drizzle(await tenantDbManager.getPool(auth.tenantId));
+        const [user] = await db.select({ isAllOutlets: users.isAllOutlets }).from(users).where(eq(users.id, auth.userId)).limit(1);
+        const [assignment] = user?.isAllOutlets ? [{}] : await db.select({ id: userOutlets.id }).from(userOutlets).where(and(eq(userOutlets.userId, auth.userId), eq(userOutlets.outletId, data.outletId))).limit(1);
+        if (!user || (!user.isAllOutlets && !assignment)) return;
+        const roomName = `tenant:${auth.tenantId}:outlet:${data.outletId}`;
         socket.join(roomName);
         console.log(`[Socket.IO] Socket ${socket.id} joined room ${roomName} (Terminal: ${data.terminalName || 'Main'})`);
       }
@@ -46,7 +69,7 @@ export function initSocket(server: HttpServer): SocketIOServer {
 
     socket.on('leave_outlet', (data: { outletId: string }) => {
       if (data?.outletId) {
-        const roomName = `outlet:${data.outletId}`;
+        const roomName = `tenant:${socket.data.auth.tenantId}:outlet:${data.outletId}`;
         socket.leave(roomName);
         console.log(`[Socket.IO] Socket ${socket.id} left room ${roomName}`);
       }
@@ -67,8 +90,8 @@ export function getIO(): SocketIOServer {
   return io;
 }
 
-export function emitToOutlet(outletId: string, event: string, data: any) {
+export function emitToOutlet(tenantId: string, outletId: string, event: string, data: any) {
   if (io) {
-    io.to(`outlet:${outletId}`).emit(event, data);
+    io.to(`tenant:${tenantId}:outlet:${outletId}`).emit(event, data);
   }
 }

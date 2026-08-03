@@ -76,7 +76,7 @@ export const verifyEmail = asyncHandler(async (req, res) => {
 
 export const provisionTenant = asyncHandler(async (req, res) => {
   const tenantId = req.params.tenantId as string;
-  const { plan } = req.body;
+  const { plan } = z.object({ plan: z.enum(['starter', 'pro', 'enterprise']) }).parse(req.body);
   const result = await tenantService.provisionTenant(tenantId, plan);
   res.json(result);
 });

@@ -1,6 +1,6 @@
 import { withTenantDb } from '../db/with-tenant-db';
 import * as schema from '../db/tenant_schema';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, inArray } from 'drizzle-orm';
 import crypto from 'crypto';
 import { HttpError } from '../utils/errors';
 
@@ -29,30 +29,38 @@ export async function listOutlets() {
       .from(schema.products)
       .where(eq(schema.products.isGlobal, true));
 
-    const result = await Promise.all(outletsList.map(async (o: any) => {
-      let productCount = totalGlobalProducts || 0;
-      const [{ countOutletProds }] = await tx
-        .select({ countOutletProds: sql<number>`cast(count(${schema.outletProducts.id}) as int)` })
+    if (outletsList.length === 0) return [];
+
+    const outletIds = outletsList.map((o: any) => o.id);
+
+    // ponytail: batch counts with one GROUP BY query per table instead of 2 queries per outlet
+    const [outletProds, employeeRows] = await Promise.all([
+      tx
+        .select({
+          outletId: schema.outletProducts.outletId,
+          count: sql<number>`cast(count(${schema.outletProducts.id}) as int)`,
+        })
         .from(schema.outletProducts)
-        .where(eq(schema.outletProducts.outletId, o.id));
-
-      if (countOutletProds > 0) {
-        productCount = countOutletProds;
-      }
-
-      const [{ employeeCount }] = await tx
-        .select({ employeeCount: sql<number>`cast(count(${schema.userOutlets.id}) as int)` })
+        .where(inArray(schema.outletProducts.outletId, outletIds))
+        .groupBy(schema.outletProducts.outletId),
+      tx
+        .select({
+          outletId: schema.userOutlets.outletId,
+          count: sql<number>`cast(count(${schema.userOutlets.id}) as int)`,
+        })
         .from(schema.userOutlets)
-        .where(eq(schema.userOutlets.outletId, o.id));
+        .where(inArray(schema.userOutlets.outletId, outletIds))
+        .groupBy(schema.userOutlets.outletId),
+    ]);
 
-      return {
-        ...o,
-        productCount: productCount || 0,
-        employeeCount: employeeCount || 0,
-      };
+    const prodCountMap = new Map(outletProds.map((r: any) => [r.outletId, r.count]));
+    const empCountMap = new Map(employeeRows.map((r: any) => [r.outletId, r.count]));
+
+    return outletsList.map((o: any) => ({
+      ...o,
+      productCount: prodCountMap.get(o.id) ?? (totalGlobalProducts || 0),
+      employeeCount: empCountMap.get(o.id) || 0,
     }));
-
-    return result;
   });
 }
 

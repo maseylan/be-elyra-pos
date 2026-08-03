@@ -273,7 +273,8 @@ export const getRedeemableRewards = asyncHandler(async (req: Request, res: Respo
 const earnPointsSchema = z.object({
   memberId: z.string().uuid(),
   programId: z.string().uuid(),
-  subtotal: z.number().min(0),
+  // ponytail: subtotal diabaikan — dihitung server dari order (verifikasi orderId)
+  subtotal: z.number().min(0).optional(),
 });
 
 export const earnPointsHandler = asyncHandler(async (req: Request, res: Response) => {
@@ -283,11 +284,19 @@ export const earnPointsHandler = asyncHandler(async (req: Request, res: Response
   const outletId = (req as any).outletId;
   if (!outletId) return res.status(400).json({ error: 'Outlet context required' });
 
+  const orderId = p(req.params, 'orderId');
+  if (!orderId) return res.status(400).json({ error: 'orderId is required' });
+
   const program = await loyaltyService.getProgram(parsed.data.programId);
   if (!program) return res.status(404).json({ error: 'Program not found' });
 
-  const orderId = p(req.params, 'orderId');
-  const points = await loyaltyService.calculateEarnedPoints(parsed.data.subtotal, program);
+  const order = await loyaltyService.getOrderForEarnPoints(orderId, outletId, parsed.data.memberId);
+  if (!order) return res.status(404).json({ error: 'Order tidak ditemukan atau bukan milik member/outlet ini' });
+
+  const existing = await loyaltyService.getEarnedPointsForOrder(orderId);
+  if (existing) return res.status(409).json({ error: 'Points sudah diberikan untuk order ini' });
+
+  const points = await loyaltyService.calculateEarnedPoints(Number(order.subtotal), program);
 
   const expiresAt = new Date();
   expiresAt.setFullYear(expiresAt.getFullYear() + 1);

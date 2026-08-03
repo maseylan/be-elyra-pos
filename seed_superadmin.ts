@@ -14,8 +14,9 @@ const seedSuperAdmin = async () => {
   
   const db = drizzle(pool);
   
-  const email = 'admin@elyrapos.my.id';
-  const plainPassword = 'superadmin123';
+  const email = process.env.SUPERADMIN_EMAIL;
+  const plainPassword = process.env.SUPERADMIN_PASSWORD;
+  if (!email || !plainPassword) throw new Error('SUPERADMIN_EMAIL and SUPERADMIN_PASSWORD are required');
   
   console.log(`Creating superadmin with email: ${email}`);
   
@@ -29,7 +30,6 @@ const seedSuperAdmin = async () => {
     });
     console.log('Superadmin successfully created!');
     console.log(`Email: ${email}`);
-    console.log(`Password: ${plainPassword}`);
   } catch (err: any) {
     if (err.code === '23505') { // Unique violation
       console.log('Superadmin with this email already exists!');

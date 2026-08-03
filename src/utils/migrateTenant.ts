@@ -82,6 +82,26 @@ export const ensureTenantSchemaProvisioned = async (tenantId: string) => {
       migrationsFolder: path.join(__dirname, '../../drizzle/tenant'),
     });
 
+    // Smoke check: critical constraints must exist, otherwise the tenant must NOT be marked provisioned
+    const criticalObjects = [
+      'orders_pk', 'order_items_pk', 'outlet_products_pk',
+      'order_items_order_id_orders_id_fk',
+      'orders_idempotency_key_unique', 'outlet_products_unique_base',
+    ];
+    for (const name of criticalObjects) {
+      const { rows } = await migrationClient.query(
+        `SELECT EXISTS (
+           SELECT 1 FROM pg_constraint WHERE conname = $1
+           UNION ALL
+           SELECT 1 FROM pg_indexes WHERE indexname = $1
+         ) AS ok`,
+        [name],
+      );
+      if (!rows[0]?.ok) {
+        throw new Error(`Smoke check failed: constraint/index "${name}" missing after migration`);
+      }
+    }
+
     // ponytail: seed wrapped in try/catch — schema drift between tenant_schema.ts
     // and migration SQL causes SELECT queries to fail on missing columns.
     // Remove these wrappers once drizzle tenant migrations are regenerated.

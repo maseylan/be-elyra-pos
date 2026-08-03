@@ -232,6 +232,17 @@ router.post('/refresh', async (req: Request, res: Response) => {
         throw new HttpError(401, 'Invalid or expired refresh token');
       }
 
+      // Principal must still exist and be active — no fallback role
+      const [user] = await tx
+        .select({ role: tenantSchema.users.role, name: tenantSchema.users.name, isActive: tenantSchema.users.isActive })
+        .from(tenantSchema.users)
+        .where(eq(tenantSchema.users.id, existing.userId));
+
+      if (!user || !user.isActive) {
+        await tx.delete(tenantSchema.refreshTokens).where(eq(tenantSchema.refreshTokens.id, existing.id));
+        throw new HttpError(401, 'Akun tidak ditemukan atau dinonaktifkan');
+      }
+
       const { plain, hash } = generateRefreshToken();
       await tx
         .update(tenantSchema.refreshTokens)
@@ -241,18 +252,12 @@ router.post('/refresh', async (req: Request, res: Response) => {
         })
         .where(eq(tenantSchema.refreshTokens.id, existing.id));
 
-      // Fetch user to get current role/name for fresh access token
-      const [user] = await tx
-        .select({ role: tenantSchema.users.role, name: tenantSchema.users.name })
-        .from(tenantSchema.users)
-        .where(eq(tenantSchema.users.id, existing.userId));
-
       const accessToken = signAccessToken({
         sessionType: 'tenant-operational',
-        role: user?.role || 'cashier',
+        role: user.role,
         userId: existing.userId,
         tenantId,
-        name: user?.name,
+        name: user.name,
       });
 
       return { accessToken, refreshTokenPlain: plain };
@@ -300,9 +305,16 @@ router.post('/reset-password', async (req: Request, res: Response) => {
     const valid = await verifyResetToken(email, token, `tenant:${tenantId}`);
     if (!valid) return res.status(400).json({ error: 'Token tidak valid atau sudah kedaluwarsa' });
     const hash = await bcrypt.hash(password, 12);
-    await withTenantDb(async (tx) =>
-      tx.update(tenantSchema.users).set({ passwordHash: hash }).where(eq(tenantSchema.users.email, email))
-    );
+    await withTenantDb(async (tx) => {
+      const [user] = await tx
+        .select({ id: tenantSchema.users.id })
+        .from(tenantSchema.users)
+        .where(eq(tenantSchema.users.email, email));
+      if (!user) return;
+      await tx.update(tenantSchema.users).set({ passwordHash: hash }).where(eq(tenantSchema.users.id, user.id));
+      // Revoke all refresh tokens so other devices must log in again
+      await tx.delete(tenantSchema.refreshTokens).where(eq(tenantSchema.refreshTokens.userId, user.id));
+    });
     res.json({ message: 'Password berhasil direset' });
   } catch (error: any) {
     if (error instanceof z.ZodError) return res.status(400).json({ error: 'Validasi gagal', details: error.issues });

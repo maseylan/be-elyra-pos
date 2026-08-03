@@ -9,8 +9,20 @@ vi.mock('../db/with-tenant-db', () => ({
   }),
 }));
 
+const selectChain = (rows: any[]) => ({
+  from: () => ({
+    where: () => ({
+      for: () => ({
+        limit: () => Promise.resolve(rows),
+      }),
+      limit: () => Promise.resolve(rows),
+    }),
+  }),
+});
+
 const mockTx: any = {
-  select: vi.fn(),
+  execute: vi.fn().mockResolvedValue(undefined),
+  select: vi.fn(() => selectChain([])),
   insert: vi.fn(),
   update: vi.fn(),
 };
@@ -18,6 +30,7 @@ const mockTx: any = {
 describe('Session Service Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockTx.select.mockImplementation(() => selectChain([]));
   });
 
   it('should throw SessionConflictError on duplicate open session', async () => {
@@ -46,11 +59,13 @@ describe('Session Service Tests', () => {
       status: 'OPEN',
     };
 
-    // Select open session
+    // Select open session (with FOR UPDATE)
     mockTx.select.mockImplementationOnce(() => ({
       from: () => ({
         where: () => ({
-          limit: () => Promise.resolve([mockSession]),
+          for: () => ({
+            limit: () => Promise.resolve([mockSession]),
+          }),
         }),
       }),
     }));
@@ -74,6 +89,13 @@ describe('Session Service Tests', () => {
       }),
     }));
 
+    // Select cash movements
+    mockTx.select.mockImplementationOnce(() => ({
+      from: () => ({
+        where: () => Promise.resolve([]),
+      }),
+    }));
+
     // Update cashier_sessions
     mockTx.update.mockImplementationOnce(() => ({
       set: (data: any) => {
@@ -93,6 +115,8 @@ describe('Session Service Tests', () => {
 
     const result = await sessionService.closeSession({
       sessionId: 'session-1',
+      outletId: 'outlet-1',
+      cashierId: 'cashier-1',
       endingCash: 150000,
       closedBy: 'cashier-1',
       closingNotes: 'Shift lancar',

@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { HttpError } from '../utils/errors';
 import * as stockService from '../services/stock.service';
 
 const movementsQuerySchema = z.object({
@@ -33,7 +32,7 @@ export const getStockMovements = async (req: Request, res: Response, next: NextF
   }
   try {
     const outletId = (req as any).outletId;
-    const result = await stockService.listStockMovements({ ...parsed.data, outletId: parsed.data.outletId || outletId });
+    const result = await stockService.listStockMovements({ ...parsed.data, outletId });
     res.json(result);
   } catch (error) {
     next(error);
@@ -51,7 +50,7 @@ export const adjustStock = async (req: Request, res: Response, next: NextFunctio
       return res.status(400).json({ error: 'Outlet context required for stock adjustment' });
     }
     const currentUser = (req as any).user;
-    const createdBy = parsed.data.userId || parsed.data.createdBy || currentUser?.id || currentUser?.userId;
+    const createdBy = currentUser?.id || currentUser?.userId;
 
     const result = await stockService.adjustStock({
       outletId,
@@ -65,16 +64,13 @@ export const adjustStock = async (req: Request, res: Response, next: NextFunctio
     });
     res.json(result);
   } catch (error) {
-    if (error instanceof HttpError) {
-      return res.status(400).json({ error: error.message });
-    }
     next(error);
   }
 };
 
 export const getLowStockProducts = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const outletId = req.query.outletId as string || (req as any).outletId;
+    const outletId = req.outletId;
     const result = await stockService.getLowStockProducts(outletId);
     res.json(result);
   } catch (error) {

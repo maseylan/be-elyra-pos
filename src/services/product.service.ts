@@ -227,30 +227,22 @@ export async function getProductById(id: string, outletId?: string) {
       whereConditions.push(eq(schema.orders.outletId, outletId));
     }
 
-    const sales = await tx.select({
-      quantity: schema.orderItems.quantity,
-      subtotal: schema.orderItems.subtotal,
-      createdAt: schema.orders.createdAt
-    })
-    .from(schema.orderItems)
-    .innerJoin(schema.orders, eq(schema.orders.id, schema.orderItems.orderId))
-    .where(and(...whereConditions));
+    // Performance Calculations — aggregate in SQL instead of loading the whole sales history
+    const [saleStats] = await tx
+      .select({
+        soldToday: sql<number>`cast(coalesce(sum(${schema.orderItems.quantity}) filter (where ${schema.orders.createdAt} >= ${startOfDay}), 0) as int)`,
+        soldThisWeek: sql<number>`cast(coalesce(sum(${schema.orderItems.quantity}) filter (where ${schema.orders.createdAt} >= ${startOfWeek}), 0) as int)`,
+        soldThisMonth: sql<number>`cast(coalesce(sum(${schema.orderItems.quantity}) filter (where ${schema.orders.createdAt} >= ${startOfMonth}), 0) as int)`,
+        totalRevenue: sql<number>`cast(coalesce(sum(${schema.orderItems.subtotal}::numeric), 0) as float)`,
+      })
+      .from(schema.orderItems)
+      .innerJoin(schema.orders, eq(schema.orders.id, schema.orderItems.orderId))
+      .where(and(...whereConditions));
 
-    let soldToday = 0;
-    let soldThisWeek = 0;
-    let soldThisMonth = 0;
-    let totalRevenue = 0;
-
-    for (const item of sales) {
-      const itemDate = new Date(item.createdAt);
-      const qty = Number(item.quantity || 0);
-      const rev = Number(item.subtotal || 0);
-
-      totalRevenue += rev;
-      if (itemDate >= startOfMonth) soldThisMonth += qty;
-      if (itemDate >= startOfWeek) soldThisWeek += qty;
-      if (itemDate >= startOfDay) soldToday += qty;
-    }
+    const soldToday = Number(saleStats?.soldToday || 0);
+    const soldThisWeek = Number(saleStats?.soldThisWeek || 0);
+    const soldThisMonth = Number(saleStats?.soldThisMonth || 0);
+    const totalRevenue = Number(saleStats?.totalRevenue || 0);
     // Fetch Product Variants, Modifier Groups, and Add-ons with error safeguards
     let resolvedVariants: any[] = [];
     try {
@@ -284,11 +276,11 @@ export async function getProductById(id: string, outletId?: string) {
       const modifierGroups = await tx.select().from(schema.modifierGroups).where(eq(schema.modifierGroups.productId, id));
       if (modifierGroups.length > 0) {
         const gIds = modifierGroups.map((g: any) => g.id);
-        const mods = await tx.select().from(schema.modifiers).where(eq(schema.modifiers.isActive, true));
+        const mods = await tx.select().from(schema.modifiers).where(and(inArray(schema.modifiers.groupId, gIds), eq(schema.modifiers.isActive, true)));
         const pMods = mods.filter((m: any) => gIds.includes(m.groupId));
         let mOverridesMap = new Map();
         if (outletId && pMods.length > 0) {
-          const mOvr = await tx.select().from(schema.outletModifiers).where(eq(schema.outletModifiers.outletId, outletId));
+          const mOvr = await tx.select().from(schema.outletModifiers).where(and(eq(schema.outletModifiers.outletId, outletId), inArray(schema.outletModifiers.modifierId, pMods.map((m: any) => m.id))));
           mOverridesMap = new Map(mOvr.map((o: any) => [o.modifierId, o]));
         }
         resolvedModifierGroups = modifierGroups.map((g: any) => ({
@@ -312,11 +304,11 @@ export async function getProductById(id: string, outletId?: string) {
       const addOnLinks = await tx.select().from(schema.productAddOns).where(eq(schema.productAddOns.productId, id));
       if (addOnLinks.length > 0) {
         const aIds = addOnLinks.map((l: any) => l.addOnId);
-        const allAddOns = await tx.select().from(schema.addOns).where(eq(schema.addOns.isActive, true));
+        const allAddOns = await tx.select().from(schema.addOns).where(and(inArray(schema.addOns.id, aIds), eq(schema.addOns.isActive, true)));
         const pAddOns = allAddOns.filter((a: any) => aIds.includes(a.id));
         let aOverridesMap = new Map();
         if (outletId && pAddOns.length > 0) {
-          const aOvr = await tx.select().from(schema.outletAddOns).where(eq(schema.outletAddOns.outletId, outletId));
+          const aOvr = await tx.select().from(schema.outletAddOns).where(and(eq(schema.outletAddOns.outletId, outletId), inArray(schema.outletAddOns.addOnId, pAddOns.map((a: any) => a.id))));
           aOverridesMap = new Map(aOvr.map((o: any) => [o.addOnId, o]));
         }
         resolvedAddOns = pAddOns.map((a: any) => {

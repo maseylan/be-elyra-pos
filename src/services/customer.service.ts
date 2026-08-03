@@ -28,17 +28,22 @@ export async function listCustomers(filters: { search?: string; page?: number; l
         email: schema.customers.email,
         memberId: schema.loyaltyMembers.id,
         memberSince: schema.loyaltyMembers.createdAt,
-        totalOrders: sql<number>`cast(count(distinct ${schema.orders.id}) as int)`,
-        totalSpent: sql<number>`cast(coalesce(sum(${schema.orders.totalAmount}::numeric), 0) as float)`,
-        totalPoints: sql<number>`cast(coalesce(sum(${schema.loyaltyPointsTransactions.points}), 0) as int)`,
+        // ponytail: scalar subqueries instead of joining orders × points (fan-out multiplied sums)
+        totalOrders: sql<number>`(
+          SELECT cast(count(*) as int) FROM ${schema.orders} o
+          WHERE o.member_id = ${schema.loyaltyMembers.id} AND o.status = 'completed'
+        )`,
+        totalSpent: sql<number>`(
+          SELECT cast(coalesce(sum(o.total_amount::numeric), 0) as float) FROM ${schema.orders} o
+          WHERE o.member_id = ${schema.loyaltyMembers.id} AND o.status = 'completed'
+        )`,
+        totalPoints: sql<number>`(
+          SELECT cast(coalesce(sum(t.points), 0) as int) FROM ${schema.loyaltyPointsTransactions} t
+          WHERE t.member_id = ${schema.loyaltyMembers.id}
+        )`,
       })
       .from(schema.customers)
       .leftJoin(schema.loyaltyMembers, eq(schema.loyaltyMembers.customerId, schema.customers.id))
-      .leftJoin(schema.orders, and(
-        eq(schema.orders.memberId, schema.loyaltyMembers.id),
-        eq(schema.orders.status, 'completed'),
-      ))
-      .leftJoin(schema.loyaltyPointsTransactions, eq(schema.loyaltyPointsTransactions.memberId, schema.loyaltyMembers.id))
       .where(and(...conditions))
       .groupBy(schema.customers.id, schema.loyaltyMembers.id, schema.loyaltyMembers.createdAt)
       .orderBy(desc(schema.customers.createdAt))

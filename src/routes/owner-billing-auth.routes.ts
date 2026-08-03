@@ -137,6 +137,12 @@ router.post('/refresh', async (req: Request, res: Response) => {
         role: 'owner' as const,
         tenantId: existing.tenantId,
       }),
+      async (tx, existing) => {
+        const [tenantRecord] = await tx.select({ isActive: tenants.isActive, emailVerified: tenants.emailVerified }).from(tenants).where(eq(tenants.id, existing.tenantId));
+        if (!tenantRecord || !tenantRecord.isActive || !tenantRecord.emailVerified) {
+          throw new HttpError(401, 'Akun tidak ditemukan, dinonaktifkan, atau email belum diverifikasi');
+        }
+      },
     );
 
     setRefreshCookie(res, result.refreshTokenPlain);
@@ -173,7 +179,13 @@ router.post('/reset-password', async (req: Request, res: Response) => {
     const valid = await verifyResetToken(email, token, 'owner-billing');
     if (!valid) return res.status(400).json({ error: 'Token tidak valid atau sudah kedaluwarsa' });
     const hash = await bcrypt.hash(password, 12);
-    await publicDb.update(tenants).set({ passwordHash: hash }).where(eq(tenants.email, email));
+    await publicDb.transaction(async (tx) => {
+      const [tenantRecord] = await tx.select({ id: tenants.id }).from(tenants).where(eq(tenants.email, email));
+      if (!tenantRecord) return;
+      await tx.update(tenants).set({ passwordHash: hash }).where(eq(tenants.id, tenantRecord.id));
+      // Revoke all owner-billing refresh tokens for this tenant
+      await tx.delete(ownerBillingRefreshTokens).where(eq(ownerBillingRefreshTokens.tenantId, tenantRecord.id));
+    });
     res.json({ message: 'Password berhasil direset' });
   } catch (error: any) {
     if (error instanceof z.ZodError) return res.status(400).json({ error: 'Validasi gagal', details: error.issues });

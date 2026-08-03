@@ -1,36 +1,26 @@
 import { Request, Response } from 'express';
 import net from 'net';
 import * as printService from '../services/print.service';
+import * as outletSettingsService from '../services/outlet-settings.service';
 
-const FIXED_HOSTS = new Set(['127.0.0.1', 'localhost', 'host.docker.internal']);
 const DEFAULT_PORT = 9100;
 const CONNECT_TIMEOUT = 5000;
 
-// Hanya izinkan host lokal/IP privat — blokir SSRF ke internet
-function isAllowedHost(host: string): boolean {
-  if (FIXED_HOSTS.has(host)) return true;
-  const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (!m) return false;
-  const [a, b] = [Number(m[1]), Number(m[2])];
-  return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
-}
-
 export async function printRaw(req: Request, res: Response) {
-  const { data, host = 'host.docker.internal', port = DEFAULT_PORT } = req.body || {};
+  const { data } = req.body || {};
   if (typeof data !== 'string' || !data) {
     return res.status(400).json({ error: 'data (base64 ESC/POS bytes) is required' });
   }
-  if (typeof host !== 'string' || !isAllowedHost(host)) {
-    return res.status(400).json({ error: 'host not allowed' });
-  }
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    return res.status(400).json({ error: 'invalid port' });
-  }
+  const settings = await outletSettingsService.resolveEffectiveSettings(req.outletId!);
+  const host = settings.printerHost;
+  const port = Number(settings.printerPort || DEFAULT_PORT);
+  if (!host) return res.status(400).json({ error: 'Printer belum dikonfigurasi untuk outlet ini' });
 
   const buf = Buffer.from(data, 'base64');
   if (buf.length === 0) {
     return res.status(400).json({ error: 'empty payload' });
   }
+  if (buf.length > 1024 * 1024) return res.status(413).json({ error: 'print payload too large' });
 
   const socket = net.connect({ host, port });
   const timeout = setTimeout(() => socket.destroy(new Error('connect timeout')), CONNECT_TIMEOUT);

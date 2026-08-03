@@ -80,8 +80,8 @@ export const createOrder = asyncHandler(async (req: Request, res: Response, next
 
   const payload = {
     ...parsed.data,
-    cashierId: parsed.data.cashierId || authUserId,
-    cashierName: parsed.data.cashierName && parsed.data.cashierName !== 'Kasir Default' ? parsed.data.cashierName : authUserName,
+    cashierId: authUserId,
+    cashierName: authUserName,
   };
 
   try {
@@ -99,16 +99,7 @@ export const listOrders = asyncHandler(async (req: Request, res: Response, next:
     return res.status(400).json({ error: 'Invalid query', details: query.error.flatten() });
   }
 
-  const queryOutlet = req.query.outletId as string | undefined;
-  let targetOutletId: string | undefined = undefined;
-
-  if (queryOutlet && queryOutlet !== '' && queryOutlet !== 'all') {
-    targetOutletId = queryOutlet;
-  } else if (!queryOutlet && (req as any).outletId && req.baseUrl.includes('/outlets/')) {
-    targetOutletId = (req as any).outletId;
-  }
-
-  const result = await orderService.listOrders({ ...query.data, outletId: targetOutletId });
+  const result = await orderService.listOrders({ ...query.data, outletId: req.outletId });
   res.json(result);
 });
 
@@ -133,16 +124,7 @@ export const getOrderSummary = asyncHandler(async (req: Request, res: Response, 
     return res.status(400).json({ error: 'Invalid query', details: query.error.flatten() });
   }
 
-  const queryOutlet = req.query.outletId as string | undefined;
-  let targetOutletId: string | undefined = undefined;
-
-  if (queryOutlet && queryOutlet !== '' && queryOutlet !== 'all') {
-    targetOutletId = queryOutlet;
-  } else if (!queryOutlet && (req as any).outletId && req.baseUrl.includes('/outlets/')) {
-    targetOutletId = (req as any).outletId;
-  }
-
-  const result = await orderService.getOrderSummary({ ...query.data, outletId: targetOutletId });
+  const result = await orderService.getOrderSummary({ ...query.data, outletId: req.outletId });
   res.json(result);
 });
 
@@ -209,8 +191,9 @@ export const refundOrder = asyncHandler(async (req: Request, res: Response, next
     const order = await orderService.refundOrder(params.data.id, body.data.reason, body.data.refundedBy);
     res.json(order);
   } catch (error: any) {
+    // HttpError (404/409) passes through to the global handler
+    if (error instanceof HttpError) throw error;
     if (error?.message?.includes('not found')) throw new HttpError(404, error.message);
-    if (error?.message?.includes('already refunded') || error?.message?.includes('Cannot refund')) throw new HttpError(400, error.message);
     throw error;
   }
 });

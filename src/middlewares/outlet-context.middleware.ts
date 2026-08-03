@@ -2,10 +2,15 @@ import { Request, Response, NextFunction } from 'express';
 import { getAccessibleOutlets } from '../services/user-outlet.service';
 
 export const resolveOutletContext = async (req: Request, res: Response, next: NextFunction) => {
-  const outletId = req.header('X-Outlet-Id');
+  const candidates = [req.header('X-Outlet-Id'), req.params.outletId, req.query.outletId, req.body?.outletId]
+    .filter((value): value is string => typeof value === 'string' && value !== '' && value !== 'all');
+  const outletId = candidates[0];
 
   if (!outletId) {
-    return next();
+    return res.status(400).json({ error: 'Outlet context required' });
+  }
+  if (candidates.some((candidate) => candidate !== outletId)) {
+    return res.status(400).json({ error: 'Conflicting outlet context' });
   }
 
   const user = (req as any).user;
@@ -14,7 +19,7 @@ export const resolveOutletContext = async (req: Request, res: Response, next: Ne
   }
 
   if (user.role === 'owner' || user.role === 'superadmin' || user.role === 'admin') {
-    (req as any).outletId = outletId;
+    req.outletId = outletId;
   } else {
     const accessible = await getAccessibleOutlets(user.id || user.userId);
 
@@ -22,7 +27,7 @@ export const resolveOutletContext = async (req: Request, res: Response, next: Ne
       return res.status(403).json({ error: 'No access to this outlet' });
     }
 
-    (req as any).outletId = outletId;
+    req.outletId = outletId;
   }
 
   next();

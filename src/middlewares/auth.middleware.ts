@@ -18,6 +18,7 @@ declare global {
     interface Request {
       user?: AuthUser;
       auth?: AccessTokenPayload;
+      outletId?: string;
     }
   }
 }

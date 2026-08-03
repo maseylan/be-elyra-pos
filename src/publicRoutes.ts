@@ -8,7 +8,7 @@ const publicRouter = Router();
 // Public route for self-serve registration
 publicRouter.post('/tenants/register', registerTenant);
 publicRouter.post('/auth/verify-email', verifyEmail);
-publicRouter.post('/tenants/:tenantId/provision', provisionTenant);
+publicRouter.post('/tenants/:tenantId/provision', requireAuth, requireSuperadmin, provisionTenant);
 publicRouter.get('/tenants/resolve', resolveTenant);
 publicRouter.get('/auth/check-availability', checkAvailability);
 

@@ -2,6 +2,7 @@ import { withTenantDb } from '../db/with-tenant-db';
 import * as schema from '../db/tenant_schema';
 import { eq, and, sql, desc, lte, gte, or, isNull } from 'drizzle-orm';
 import crypto from 'crypto';
+import { HttpError } from '../utils/errors';
 
 // ----- Loyalty Programs -----
 export async function listPrograms() {
@@ -185,31 +186,31 @@ export async function deleteCoupon(id: string) {
   });
 }
 
-export async function validateCoupon(code: string, subtotal: number, memberId?: string, outletId?: string) {
-  return withTenantDb(async (tx) => {
-    const [coupon] = await tx.select().from(schema.loyaltyCoupons)
-      .where(eq(schema.loyaltyCoupons.code, code.toUpperCase())).limit(1);
+export async function validateCoupon(code: string, subtotal: number, memberId?: string, outletId?: string, tx?: any) {
+  const run = async (client: any) => {
+    const [coupon] = await client.select().from(schema.loyaltyCoupons)
+      .where(eq(schema.loyaltyCoupons.code, code.toUpperCase())).for('update').limit(1);
 
-    if (!coupon) throw new Error('COUPON_NOT_FOUND');
-    if (!coupon.isActive) throw new Error('COUPON_INACTIVE');
+    if (!coupon) throw new HttpError(400, 'COUPON_NOT_FOUND');
+    if (!coupon.isActive) throw new HttpError(400, 'COUPON_INACTIVE');
 
     const now = new Date();
-    if (coupon.validFrom && coupon.validFrom > now) throw new Error('COUPON_NOT_YET_VALID');
-    if (coupon.validUntil && coupon.validUntil < now) throw new Error('COUPON_EXPIRED');
+    if (coupon.validFrom && coupon.validFrom > now) throw new HttpError(400, 'COUPON_NOT_YET_VALID');
+    if (coupon.validUntil && coupon.validUntil < now) throw new HttpError(400, 'COUPON_EXPIRED');
 
-    if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) throw new Error('COUPON_USAGE_LIMIT_REACHED');
+    if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) throw new HttpError(409, 'COUPON_USAGE_LIMIT_REACHED');
 
     if (coupon.minPurchase && subtotal < Number(coupon.minPurchase)) {
-      throw new Error(`COUPON_MIN_PURCHASE:${coupon.minPurchase}`);
+      throw new HttpError(400, `COUPON_MIN_PURCHASE:${coupon.minPurchase}`);
     }
 
     if (coupon.isSingleUse && memberId) {
-      const [usage] = await tx.select().from(schema.loyaltyCouponUsages)
+      const [usage] = await client.select().from(schema.loyaltyCouponUsages)
         .where(and(
           eq(schema.loyaltyCouponUsages.couponId, coupon.id),
           eq(schema.loyaltyCouponUsages.memberId, memberId),
         )).limit(1);
-      if (usage) throw new Error('COUPON_ALREADY_USED');
+      if (usage) throw new HttpError(409, 'COUPON_ALREADY_USED');
     }
 
     let discountAmount = Number(coupon.value);
@@ -220,7 +221,9 @@ export async function validateCoupon(code: string, subtotal: number, memberId?: 
     discountAmount = Math.min(discountAmount, subtotal);
 
     return { coupon, discountAmount };
-  });
+  };
+  // ponytail: tx param lets caller validate inside its own transaction; standalone keeps API for /coupons/validate
+  return tx ? run(tx) : withTenantDb(run);
 }
 
 // ----- Customers / Members -----
@@ -420,6 +423,34 @@ export async function recordCouponUsage(orderId: string, couponId: string, disco
     await tx.update(schema.loyaltyCoupons)
       .set({ usedCount: sql`${schema.loyaltyCoupons.usedCount} + 1` })
       .where(eq(schema.loyaltyCoupons.id, couponId));
+  });
+}
+
+export async function getOrderForEarnPoints(orderId: string, outletId: string, memberId: string) {
+  return withTenantDb(async (tx) => {
+    const [order] = await tx.select()
+      .from(schema.orders)
+      .where(and(
+        eq(schema.orders.id, orderId),
+        eq(schema.orders.outletId, outletId),
+        eq(schema.orders.memberId, memberId),
+        eq(schema.orders.status, 'completed'),
+      ))
+      .limit(1);
+    return order || null;
+  });
+}
+
+export async function getEarnedPointsForOrder(orderId: string) {
+  return withTenantDb(async (tx) => {
+    const [txn] = await tx.select()
+      .from(schema.loyaltyPointsTransactions)
+      .where(and(
+        eq(schema.loyaltyPointsTransactions.orderId, orderId),
+        eq(schema.loyaltyPointsTransactions.type, 'earn'),
+      ))
+      .limit(1);
+    return txn || null;
   });
 }
 

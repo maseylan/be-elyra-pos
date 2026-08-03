@@ -3,12 +3,13 @@ import crypto from 'crypto';
 import { withTenantDb } from '../db/with-tenant-db';
 import {
   outlets, outletSettings, cashierSessions, products, categories,
-  productVariants, modifierGroups, modifiers, addOns, productAddOns,
+  productVariants, modifierGroups, modifiers, addOns, productAddOns, outletModifiers, outletAddOns,
   orders, orderItems, floorPlans, tables, outletProducts
 } from '../db/tenant_schema';
 import { HttpError } from '../utils/errors';
 import * as outletSettingsService from './outlet-settings.service';
 import { emitToOutlet } from '../socket';
+import { getCurrentTenant } from '../contexts/tenant-context';
 
 export interface CreateSelfOrderParams {
   outletId: string;
@@ -164,7 +165,18 @@ export async function getSelfOrderCatalog(outletId: string) {
       const productVars = allVariants.filter((v: any) => v.productId === p.id);
 
       return {
-        ...p,
+        id: p.id,
+        sku: p.sku,
+        barcode: p.barcode,
+        name: p.name,
+        categoryId: p.categoryId,
+        imageUrl: p.imageUrl,
+        type: p.type,
+        trackStock: p.trackStock,
+        unit: p.unit,
+        hasVariants: p.hasVariants,
+        isAvailable: op?.isAvailable ?? true,
+        stock: op?.stock ?? 0,
         price: effectivePrice,
         sellPrice: effectivePrice,
         variants: productVars.map((v: any) => {
@@ -172,7 +184,13 @@ export async function getSelfOrderCatalog(outletId: string) {
           const rawVarPrice = opV?.sellPriceOverride !== null && opV?.sellPriceOverride !== undefined ? opV.sellPriceOverride : v.price;
           const effectiveVarPrice = Number(rawVarPrice || 0);
           return {
-            ...v,
+            id: v.id,
+            productId: v.productId,
+            name: v.name,
+            sku: v.sku,
+            isDefault: v.isDefault,
+            isAvailable: opV?.isAvailable ?? true,
+            stock: opV?.stock ?? 0,
             price: effectiveVarPrice,
           };
         }),
@@ -217,11 +235,67 @@ export async function createSelfOrder(params: CreateSelfOrderParams) {
     const session = activeSessions[0];
     const primaryTerminalName = session.terminalName || 'Kasir Utama';
 
+    const productIds = [...new Set(params.items.map((item) => item.productId))];
+    const variantIds = [...new Set(params.items.flatMap((item) => item.variantId ? [item.variantId] : []))];
+    const modifierIds = [...new Set(params.items.flatMap((item) => item.selectedModifiers?.map((modifier) => modifier.id).filter(Boolean) || []))] as string[];
+    const addOnIds = [...new Set(params.items.flatMap((item) => item.selectedAddOns?.map((addOn) => addOn.id).filter(Boolean) || []))] as string[];
+
+    if (params.items.some((item) => item.selectedModifiers?.some((modifier) => !modifier.id) || item.selectedAddOns?.some((addOn) => !addOn.id))) {
+      throw new HttpError(400, 'Modifier dan add-on harus memiliki ID yang valid.');
+    }
+
+    const [dbProducts, dbVariants, dbOutletProducts, dbModifierGroups, dbModifiers, dbOutletModifiers, dbProductAddOns, dbAddOns, dbOutletAddOns] = await Promise.all([
+      tx.select().from(products).where(and(inArray(products.id, productIds), eq(products.isActive, true))),
+      variantIds.length ? tx.select().from(productVariants).where(and(inArray(productVariants.id, variantIds), eq(productVariants.isActive, true))) : [],
+      tx.select().from(outletProducts).where(and(eq(outletProducts.outletId, params.outletId), inArray(outletProducts.productId, productIds))),
+      tx.select().from(modifierGroups).where(inArray(modifierGroups.productId, productIds)),
+      modifierIds.length ? tx.select().from(modifiers).where(and(inArray(modifiers.id, modifierIds), eq(modifiers.isActive, true))) : [],
+      modifierIds.length ? tx.select().from(outletModifiers).where(and(eq(outletModifiers.outletId, params.outletId), inArray(outletModifiers.modifierId, modifierIds))) : [],
+      addOnIds.length ? tx.select().from(productAddOns).where(and(inArray(productAddOns.productId, productIds), inArray(productAddOns.addOnId, addOnIds))) : [],
+      addOnIds.length ? tx.select().from(addOns).where(and(inArray(addOns.id, addOnIds), eq(addOns.isActive, true))) : [],
+      addOnIds.length ? tx.select().from(outletAddOns).where(and(eq(outletAddOns.outletId, params.outletId), inArray(outletAddOns.addOnId, addOnIds))) : [],
+    ]);
+
+    const pricedItems = params.items.map((item) => {
+      const product = dbProducts.find((row: any) => row.id === item.productId);
+      const variant = item.variantId ? dbVariants.find((row: any) => row.id === item.variantId && row.productId === item.productId) : undefined;
+      if (!product || (item.variantId && !variant)) throw new HttpError(400, 'Produk atau varian tidak valid.');
+
+      const outletProduct = dbOutletProducts.find((row: any) => row.productId === item.productId && (row.variantId || null) === (item.variantId || null));
+      if (outletProduct && !outletProduct.isAvailable) throw new HttpError(400, `${product.name} sedang tidak tersedia.`);
+
+      const selectedModifiers = (item.selectedModifiers || []).map(({ id }) => {
+        const modifier = dbModifiers.find((row: any) => row.id === id);
+        const group = modifier && dbModifierGroups.find((row: any) => row.id === modifier.groupId && row.productId === item.productId);
+        const override = dbOutletModifiers.find((row: any) => row.modifierId === id);
+        if (!modifier || !group || override?.isAvailable === false) throw new HttpError(400, 'Modifier tidak valid atau tidak tersedia.');
+        return { id: modifier.id, name: modifier.name, price: Number(override?.priceAdjustment ?? modifier.priceAdjustment) };
+      });
+
+      const selectedAddOns = (item.selectedAddOns || []).map(({ id }) => {
+        const addOn = dbAddOns.find((row: any) => row.id === id);
+        const attached = dbProductAddOns.some((row: any) => row.productId === item.productId && row.addOnId === id);
+        const override = dbOutletAddOns.find((row: any) => row.addOnId === id);
+        if (!addOn || !attached || override?.isAvailable === false) throw new HttpError(400, 'Add-on tidak valid atau tidak tersedia.');
+        return { id: addOn.id, name: addOn.name, price: Number(override?.price ?? addOn.price) };
+      });
+
+      const basePrice = Number(outletProduct?.sellPriceOverride ?? variant?.price ?? product.sellPrice);
+      const unitPrice = basePrice + selectedModifiers.reduce((sum, row) => sum + row.price, 0) + selectedAddOns.reduce((sum, row) => sum + row.price, 0);
+      return { ...item, productName: variant ? `${product.name}:${variant.name}` : product.name, variantName: variant?.name, selectedModifiers, selectedAddOns, price: unitPrice, subtotal: unitPrice * item.quantity };
+    });
+
+    const subtotal = pricedItems.reduce((sum, item) => sum + item.subtotal, 0);
+    const taxRate = Number(settings.defaultTaxRate || 0);
+    const taxType = settings.taxType || 'none';
+    const taxAmount = taxType === 'exclusive' ? Math.round(subtotal * taxRate / 100) : taxType === 'inclusive' ? Math.round(subtotal * taxRate / (100 + taxRate)) : 0;
+    const totalAmount = taxType === 'exclusive' ? subtotal + taxAmount : subtotal;
+
     // 3. Generate Order Number & Idempotency Key
     const orderNum = `QR-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 90 + 10)}`;
     const idempotencyKey = `selforder_${crypto.randomUUID()}`;
 
-    const orderStatus = params.paymentMethod === 'qris' ? 'completed' : 'pending_cashier';
+    const orderStatus = params.paymentMethod === 'qris' ? 'pending_payment' : 'pending_cashier';
     const payMethodName = params.paymentMethod === 'qris' ? 'QRIS' : 'BAYAR_DI_KASIR';
 
     const [createdOrder] = await tx
@@ -230,12 +304,12 @@ export async function createSelfOrder(params: CreateSelfOrderParams) {
         idempotencyKey,
         outletId: params.outletId,
         sessionId: session.id,
-        subtotal: params.subtotal.toString(),
-        taxAmount: params.taxAmount.toString(),
-        discountAmount: (params.discountAmount || 0).toString(),
-        totalAmount: params.totalAmount.toString(),
+        subtotal: subtotal.toString(),
+        taxAmount: taxAmount.toString(),
+        discountAmount: '0',
+        totalAmount: totalAmount.toString(),
         paymentMethod: payMethodName,
-        amountPaid: params.paymentMethod === 'qris' ? params.totalAmount.toString() : '0',
+        amountPaid: '0',
         changeAmount: '0',
         tableNumber: params.tableNumber || null,
         cashierName: `Self-Order (${params.customerName})`,
@@ -246,8 +320,7 @@ export async function createSelfOrder(params: CreateSelfOrderParams) {
 
     // 4. Insert items
     const createdItems = [];
-    for (const item of params.items) {
-      const itemSubtotal = item.price * item.quantity;
+    for (const item of pricedItems) {
       const notesObj = {
         customerName: params.customerName,
         customerPhone: params.customerPhone,
@@ -265,7 +338,7 @@ export async function createSelfOrder(params: CreateSelfOrderParams) {
           productName: item.productName,
           quantity: item.quantity,
           price: item.price.toString(),
-          subtotal: itemSubtotal.toString(),
+          subtotal: item.subtotal.toString(),
           notes: JSON.stringify(notesObj),
         })
         .returning();
@@ -282,14 +355,7 @@ export async function createSelfOrder(params: CreateSelfOrderParams) {
     };
 
     // 5. Emit Socket.IO Events
-    emitToOutlet(params.outletId, 'qr_order:created', fullOrder);
-    if (params.paymentMethod === 'qris') {
-      emitToOutlet(params.outletId, 'qr_order:paid_qris', {
-        order: fullOrder,
-        primaryTerminalName,
-      });
-    }
-
+    emitToOutlet(getCurrentTenant().tenantId, params.outletId, 'qr_order:created', fullOrder);
     return fullOrder;
   });
 }
@@ -303,16 +369,26 @@ export async function getPendingQROrders(outletId: string) {
       .orderBy(desc(orders.createdAt));
 
     const result = [];
-    for (const ord of pendingList) {
-      const items = await tx
+    if (pendingList.length > 0) {
+      const orderIds = pendingList.map((o: any) => o.id);
+      const allItems = await tx
         .select()
         .from(orderItems)
-        .where(eq(orderItems.orderId, ord.id));
+        .where(inArray(orderItems.orderId, orderIds));
 
-      result.push({
-        ...ord,
-        items,
-      });
+      const itemsByOrder = new Map<string, any[]>();
+      for (const item of allItems) {
+        const list = itemsByOrder.get(item.orderId) || [];
+        list.push(item);
+        itemsByOrder.set(item.orderId, list);
+      }
+
+      for (const ord of pendingList) {
+        result.push({
+          ...ord,
+          items: itemsByOrder.get(ord.id) || [],
+        });
+      }
     }
 
     return result;
@@ -330,7 +406,7 @@ export async function claimPendingQROrder(orderId: string, outletId: string, cas
         cashierName,
         updatedAt: new Date(),
       })
-      .where(and(eq(orders.id, orderId), eq(orders.status, 'pending_cashier')))
+      .where(and(eq(orders.id, orderId), eq(orders.outletId, outletId), eq(orders.status, 'pending_cashier')))
       .returning();
 
     if (!updated) {
@@ -345,7 +421,7 @@ export async function claimPendingQROrder(orderId: string, outletId: string, cas
     const fullOrder = { ...updated, items };
 
     // Emit event so other terminals instantly remove it from their pending UI
-    emitToOutlet(outletId, 'qr_order:claimed', {
+    emitToOutlet(getCurrentTenant().tenantId, outletId, 'qr_order:claimed', {
       orderId: updated.id,
       claimedBy: cashierName,
     });

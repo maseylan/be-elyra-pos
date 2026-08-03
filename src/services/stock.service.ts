@@ -140,15 +140,21 @@ export async function adjustStock(params: {
         throw new HttpError(400,'Invalid movement type');
     }
 
-    const newStock = outletProduct.stock + quantityChange;
-    if (newStock < 0 && !product.allowNegativeStock) {
-      throw new HttpError(400,'Insufficient stock. Cannot go below 0.');
-    }
+    // Atomic delta: compute new stock inside the UPDATE so concurrent adjustments can't be lost
+    const stockWhere = product.allowNegativeStock
+      ? and(...outletProductConditions)
+      : and(...outletProductConditions, sql`${schema.outletProducts.stock} + ${quantityChange} >= 0`);
 
-    await tx
+    const [updated] = await tx
       .update(schema.outletProducts)
-      .set({ stock: Math.max(0, newStock), updatedAt: new Date() })
-      .where(eq(schema.outletProducts.id, outletProduct.id));
+      .set({ stock: sql`${schema.outletProducts.stock} + ${quantityChange}`, updatedAt: new Date() })
+      .where(stockWhere)
+      .returning({ stock: schema.outletProducts.stock });
+
+    if (!updated) {
+      throw new HttpError(400, `Insufficient stock for ${product.name}. Cannot go below 0.`);
+    }
+    const newStock = Number(updated.stock);
 
     await tx.insert(schema.stockMovements).values({
       id: crypto.randomUUID(),
@@ -157,7 +163,7 @@ export async function adjustStock(params: {
       variantId: params.variantId || null,
       type: params.type === 'stock_out' ? 'waste' : params.type,
       quantityChange,
-      stockAfter: Math.max(0, newStock),
+      stockAfter: newStock,
       note: params.note || null,
       reason: params.reason || null,
       createdBy: params.createdBy,

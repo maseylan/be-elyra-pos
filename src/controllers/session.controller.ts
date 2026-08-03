@@ -4,7 +4,7 @@ import { HttpError } from '../utils/errors';
 import * as sessionService from '../services/session.service';
 
 const openSessionSchema = z.object({
-  outletId: z.string().uuid(),
+  outletId: z.string().uuid().optional(),
   startingCash: z.number().nonnegative(),
   terminalName: z.string().optional(),
   notes: z.string().optional(),
@@ -17,7 +17,7 @@ const closeSessionSchema = z.object({
 });
 
 const createCashMovementSchema = z.object({
-  outletId: z.string().uuid(),
+  outletId: z.string().uuid().optional(),
   sessionId: z.string().uuid(),
   type: z.enum(['CASH_IN', 'CASH_OUT']),
   amount: z.number().positive('Nominal harus lebih besar dari 0'),
@@ -32,7 +32,7 @@ const forceCloseSessionSchema = z.object({
 
 export const getActiveSession = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const outletId = (req.query.outletId as string) || (req as any).user?.outletId;
+    const outletId = req.outletId;
     const cashierId = req.auth?.userId || req.user?.userId || (req.user as any)?.id;
     const terminalName = req.query.terminalName as string | undefined;
 
@@ -49,7 +49,7 @@ export const getActiveSession = async (req: Request, res: Response, next: NextFu
 
 export const getTerminalStatus = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const outletId = (req.query.outletId as string) || (req as any).user?.outletId || req.params.outletId;
+    const outletId = req.outletId;
 
     if (!outletId) {
       return res.status(400).json({ error: 'outletId parameter is required' });
@@ -73,7 +73,7 @@ export const openSession = async (req: Request, res: Response, next: NextFunctio
     const cashierName = req.auth?.name || (req.user as any)?.name || req.auth?.email || 'Kasir';
 
     const session = await sessionService.openSession({
-      outletId: parseResult.data.outletId,
+      outletId: req.outletId!,
       cashierId,
       cashierName,
       terminalName: parseResult.data.terminalName,
@@ -102,6 +102,8 @@ export const closeSession = async (req: Request, res: Response, next: NextFuncti
       endingCash: parseResult.data.endingCash,
       closingNotes: parseResult.data.closingNotes,
       closedBy: userId,
+      outletId: req.outletId!,
+      cashierId: userId,
     });
 
     return res.json({ message: 'Shift berhasil ditutup', data: session });
@@ -138,15 +140,6 @@ export const forceCloseSession = async (req: Request, res: Response, next: NextF
 
 export const getSessionHistory = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const queryOutlet = req.query.outletId as string | undefined;
-    let targetOutletId: string | undefined = undefined;
-
-    if (queryOutlet && queryOutlet !== '' && queryOutlet !== 'all') {
-      targetOutletId = queryOutlet;
-    } else if (!queryOutlet && (req as any).outletId && req.baseUrl.includes('/outlets/')) {
-      targetOutletId = (req as any).outletId;
-    }
-
     const filters = {
       startDate: req.query.startDate as string,
       endDate: req.query.endDate as string,
@@ -154,7 +147,7 @@ export const getSessionHistory = async (req: Request, res: Response, next: NextF
       status: req.query.status as string,
     };
 
-    const history = await sessionService.getSessionHistory(targetOutletId, filters);
+    const history = await sessionService.getSessionHistory(req.outletId, filters);
     return res.json({ data: history });
   } catch (error) {
     next(error);
@@ -172,7 +165,7 @@ export const createCashMovement = async (req: Request, res: Response, next: Next
     const cashierName = req.auth?.name || (req.user as any)?.name || req.auth?.email || 'Kasir';
 
     const movement = await sessionService.createCashMovement({
-      outletId: parseResult.data.outletId,
+      outletId: req.outletId!,
       sessionId: parseResult.data.sessionId,
       type: parseResult.data.type,
       amount: parseResult.data.amount,
@@ -195,7 +188,7 @@ export const getCashMovements = async (req: Request, res: Response, next: NextFu
       return res.status(400).json({ error: 'sessionId parameter is required' });
     }
 
-    const movements = await sessionService.getCashMovements(sessionId);
+    const movements = await sessionService.getCashMovements(sessionId, req.outletId!);
     return res.json({ data: movements });
   } catch (error) {
     next(error);

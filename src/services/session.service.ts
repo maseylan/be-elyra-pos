@@ -25,6 +25,8 @@ export interface OpenSessionParams {
 
 export interface CloseSessionParams {
   sessionId: string;
+  outletId: string;
+  cashierId: string;
   endingCash: number;
   closingNotes?: string;
   closedBy: string;
@@ -138,7 +140,8 @@ export const createCashMovement = async (params: CreateCashMovementParams) => {
     const [session] = await tx
       .select()
       .from(cashierSessions)
-      .where(and(eq(cashierSessions.id, params.sessionId), eq(cashierSessions.status, 'OPEN')))
+      .where(and(eq(cashierSessions.id, params.sessionId), eq(cashierSessions.outletId, params.outletId), eq(cashierSessions.status, 'OPEN')))
+      .for('update')
       .limit(1);
 
     if (!session) {
@@ -148,13 +151,13 @@ export const createCashMovement = async (params: CreateCashMovementParams) => {
     const [movement] = await tx
       .insert(cashMovements)
       .values({
-        outletId: params.outletId,
+        outletId: session.outletId,
         sessionId: params.sessionId,
         type: params.type,
         amount: params.amount.toString(),
         reason: params.reason,
-        cashierId: params.cashierId,
-        cashierName: params.cashierName,
+        cashierId: session.cashierId,
+        cashierName: session.cashierName,
       })
       .returning();
 
@@ -162,12 +165,12 @@ export const createCashMovement = async (params: CreateCashMovementParams) => {
   });
 };
 
-export const getCashMovements = async (sessionId: string) => {
+export const getCashMovements = async (sessionId: string, outletId: string) => {
   return withTenantDb(async (tx) => {
     return await tx
       .select()
       .from(cashMovements)
-      .where(eq(cashMovements.sessionId, sessionId))
+      .where(and(eq(cashMovements.sessionId, sessionId), eq(cashMovements.outletId, outletId)))
       .orderBy(desc(cashMovements.createdAt));
   });
 };
@@ -185,6 +188,7 @@ export const openSession = async (params: OpenSessionParams) => {
   const isMultiTerminal = !!settingsSnapshot?.multiTerminal;
 
   return withTenantDb(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${params.outletId}:${isMultiTerminal ? params.terminalName || '' : ''}`})::bigint)`);
     // Check if an open session already exists for this outlet / terminal
     const existingConditions = [
       eq(cashierSessions.outletId, params.outletId),
@@ -306,6 +310,9 @@ async function computeCloseData(tx: any, sessionId: string) {
 export const closeSession = async (params: CloseSessionParams) => {
   return withTenantDb(async (tx) => {
     const data = await computeCloseData(tx, params.sessionId);
+    if (data.session.outletId !== params.outletId || data.session.cashierId !== params.cashierId) {
+      throw new HttpError(403, 'Shift ini bukan milik kasir atau outlet aktif.');
+    }
     const expectedCash = data.startingCash + data.totalCashSales + data.totalCashIn - data.totalCashOut;
     const totalRefunds = data.refundedOrders.reduce((sum: number, r: any) => sum + Number(r.totalAmount || 0), 0);
     const endingCash = Number(params.endingCash);
@@ -345,7 +352,7 @@ export const forceCloseSession = async (params: ForceCloseSessionParams) => {
         closedBy: params.supervisorId, forceClosedReason: params.reason,
         closingNotes: params.closingNotes, updatedAt: new Date(),
       })
-      .where(eq(cashierSessions.id, data.session.id))
+      .where(and(eq(cashierSessions.id, data.session.id), eq(cashierSessions.status, 'OPEN')))
       .returning();
     return updatedSession;
   });

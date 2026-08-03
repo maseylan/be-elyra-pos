@@ -47,6 +47,7 @@ export async function rotateRefreshToken(
   table: any,
   db: any,
   buildPayload: (record: any) => AccessTokenPayload,
+  validatePrincipal?: (tx: any, record: any) => Promise<void>,
 ): Promise<{ accessToken: string; refreshTokenPlain: string }> {
   const incomingHash = hashToken(incomingPlainToken);
 
@@ -75,6 +76,16 @@ export async function rotateRefreshToken(
 
     if (existing.expiresAt < new Date()) {
       throw new HttpError(401, 'Invalid or expired refresh token');
+    }
+
+    // Principal must still be active — otherwise revoke this session
+    if (validatePrincipal) {
+      try {
+        await validatePrincipal(tx, existing);
+      } catch (e) {
+        await tx.delete(table).where(eq(table.id, existing.id));
+        throw e;
+      }
     }
 
     const { plain, hash } = generateRefreshToken();
