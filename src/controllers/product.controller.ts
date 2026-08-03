@@ -46,7 +46,8 @@ export const getProducts = asyncHandler(async (req: Request, res: Response) => {
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid query params', details: parsed.error.flatten() });
   }
-  const outletId = (req as any).outletId;
+  const rawOutletId = (req.query.outletId as string) || (req as any).outletId || (req.header('X-Outlet-Id') as string);
+  const outletId = rawOutletId && rawOutletId !== 'all' ? rawOutletId : undefined;
   let products;
   if (outletId) {
     products = await outletProductService.listProductsForOutlet(outletId, parsed.data);
