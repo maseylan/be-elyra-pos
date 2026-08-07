@@ -20,7 +20,7 @@ import {
   lookupMember, listMembers, getMemberDetail, getRedeemableRewards,
   earnPointsHandler,
 } from './controllers/loyalty.controller';
-import { resolveOutletContext } from './middlewares/outlet-context.middleware';
+import { resolveOutletContext, resolveOptionalOutletContext } from './middlewares/outlet-context.middleware';
 
 import { createVariant, getVariants, updateVariant, deleteVariant, updateOutletVariant } from './controllers/variant.controller';
 import { createModifierGroup, getModifierGroups, createModifier, updateModifierGroup, updateModifier, deleteModifier, updateOutletModifier } from './controllers/modifier.controller';
@@ -39,7 +39,7 @@ const requireAdminOrOwner = requireRole(['admin', 'owner']);
 
 // Protected Tenant Admin/Owner/Cashier Routes
 apiRouter.get('/products', getProducts);
-apiRouter.get('/products/low-stock', getLowStockProducts);
+apiRouter.get('/products/low-stock', resolveOptionalOutletContext, getLowStockProducts);
 apiRouter.get('/products/:id', getProductById);
 apiRouter.post('/products', requireAdminOrOwner, createProduct);
 apiRouter.put('/products/:id', requireAdminOrOwner, updateProduct);
@@ -79,7 +79,7 @@ apiRouter.put('/outlets/:outletId/addons/:addOnId', requireAdminOrOwner, resolve
 
 
 // Stock routes
-apiRouter.get('/stock-movements', resolveOutletContext, getStockMovements);
+apiRouter.get('/stock-movements', resolveOptionalOutletContext, getStockMovements);
 apiRouter.post('/stock/adjust', requireAdminOrOwner, resolveOutletContext, adjustStock);
 
 // Category routes
@@ -110,18 +110,18 @@ apiRouter.get('/sessions/terminals', resolveOutletContext, getTerminalStatus);
 apiRouter.post('/sessions/open', resolveOutletContext, openSession);
 apiRouter.post('/sessions/close', resolveOutletContext, closeSession);
 apiRouter.post('/sessions/cash-movement', resolveOutletContext, createCashMovement);
-apiRouter.get('/sessions/cash-movements', resolveOutletContext, getCashMovements);
+apiRouter.get('/sessions/cash-movements', resolveOptionalOutletContext, getCashMovements);
 apiRouter.post('/sessions/:id/force-close', requireSupervisorOrAdmin, forceCloseSession);
-apiRouter.get('/sessions', resolveOutletContext, requireSupervisorOrAdmin, getSessionHistory);
+apiRouter.get('/sessions', resolveOptionalOutletContext, requireSupervisorOrAdmin, getSessionHistory);
 
 // Order routes (outlet context required — resolved via X-Outlet-Id header)
 apiRouter.get('/orders/pending-qr', resolveOutletContext, getPendingQROrders);
 apiRouter.post('/orders/:orderId/claim-qr', resolveOutletContext, claimPendingQROrder);
 apiRouter.post('/orders', resolveOutletContext, createOrder);
-apiRouter.get('/orders/summary', resolveOutletContext, getOrderSummary);
-apiRouter.get('/orders', resolveOutletContext, listOrders);
+apiRouter.get('/orders/summary', resolveOptionalOutletContext, getOrderSummary);
+apiRouter.get('/orders', resolveOptionalOutletContext, listOrders);
 apiRouter.patch('/orders/:id/refund', requireAdminOrOwner, refundOrder);
-apiRouter.get('/orders/:id', resolveOutletContext, getOrder);
+apiRouter.get('/orders/:id', resolveOptionalOutletContext, getOrder);
 
 // Raw ESC/POS print ke printer TCP (host whitelisted loopback)
 apiRouter.post('/print/raw', resolveOutletContext, printRaw);

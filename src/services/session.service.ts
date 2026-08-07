@@ -165,12 +165,14 @@ export const createCashMovement = async (params: CreateCashMovementParams) => {
   });
 };
 
-export const getCashMovements = async (sessionId: string, outletId: string) => {
+export const getCashMovements = async (sessionId: string, outletId?: string) => {
   return withTenantDb(async (tx) => {
+    const conditions: any[] = [eq(cashMovements.sessionId, sessionId)];
+    if (outletId) conditions.push(eq(cashMovements.outletId, outletId));
     return await tx
       .select()
       .from(cashMovements)
-      .where(and(eq(cashMovements.sessionId, sessionId), eq(cashMovements.outletId, outletId)))
+      .where(and(...conditions))
       .orderBy(desc(cashMovements.createdAt));
   });
 };

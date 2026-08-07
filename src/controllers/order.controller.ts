@@ -41,7 +41,7 @@ const createOrderSchema = z.object({
 
 const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
+  limit: z.coerce.number().int().min(1).max(5000).default(20),
   status: z.string().optional(),
   from: z.string().optional(),
   to: z.string().optional(),
@@ -53,10 +53,11 @@ const paramSchema = z.object({
 });
 
 const summaryQuerySchema = z.object({
-  period: z.enum(['today', '7days', '30days']).optional(),
+  period: z.enum(['today', 'yesterday', '7days', '7days_prev', '30days', '30days_prev']).optional(),
   from: z.string().optional(),
   to: z.string().optional(),
   tz: z.string().optional(),
+  outletId: z.string().optional(),
 });
 
 const refundSchema = z.object({

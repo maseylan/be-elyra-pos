@@ -188,7 +188,7 @@ export const getCashMovements = async (req: Request, res: Response, next: NextFu
       return res.status(400).json({ error: 'sessionId parameter is required' });
     }
 
-    const movements = await sessionService.getCashMovements(sessionId, req.outletId!);
+    const movements = await sessionService.getCashMovements(sessionId, req.outletId);
     return res.json({ data: movements });
   } catch (error) {
     next(error);

@@ -31,7 +31,7 @@ export const getStockMovements = async (req: Request, res: Response, next: NextF
     return res.status(400).json({ error: 'Invalid query params', details: parsed.error.flatten() });
   }
   try {
-    const outletId = (req as any).outletId;
+    const outletId = (req as any).outletId || parsed.data.outletId;
     const result = await stockService.listStockMovements({ ...parsed.data, outletId });
     res.json(result);
   } catch (error) {

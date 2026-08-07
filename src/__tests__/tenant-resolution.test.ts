@@ -60,6 +60,7 @@ vi.mock('../middlewares/require-session-type.middleware', () => ({
 
 vi.mock('../middlewares/outlet-context.middleware', () => ({
   resolveOutletContext: (req: any, res: any, next: any) => next(),
+  resolveOptionalOutletContext: (req: any, res: any, next: any) => next(),
 }));
 
 // Mock product service so the test only exercises tenant-context isolation,

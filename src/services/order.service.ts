@@ -429,24 +429,52 @@ export async function getOrderSummary(filters: { outletId?: string; period?: str
 
     const tz = filters.tz || 'UTC';
 
-    if (filters.period === 'today' || (!filters.from && !filters.to)) {
+    if (filters.period === 'today') {
       conditions.push(
         sql`${schema.orders.createdAt} >= date_trunc('day', NOW() AT TIME ZONE ${tz}) AT TIME ZONE ${tz}`
       );
       conditions.push(
         sql`${schema.orders.createdAt} < date_trunc('day', NOW() AT TIME ZONE ${tz} + INTERVAL '1 day') AT TIME ZONE ${tz}`
       );
+    } else if (filters.period === 'yesterday') {
+      conditions.push(
+        sql`${schema.orders.createdAt} >= date_trunc('day', NOW() AT TIME ZONE ${tz} - INTERVAL '1 day') AT TIME ZONE ${tz}`
+      );
+      conditions.push(
+        sql`${schema.orders.createdAt} < date_trunc('day', NOW() AT TIME ZONE ${tz}) AT TIME ZONE ${tz}`
+      );
     } else if (filters.period === '7days') {
       conditions.push(
         sql`${schema.orders.createdAt} >= date_trunc('day', NOW() AT TIME ZONE ${tz} - INTERVAL '6 days') AT TIME ZONE ${tz}`
+      );
+    } else if (filters.period === '7days_prev') {
+      conditions.push(
+        sql`${schema.orders.createdAt} >= date_trunc('day', NOW() AT TIME ZONE ${tz} - INTERVAL '13 days') AT TIME ZONE ${tz}`
+      );
+      conditions.push(
+        sql`${schema.orders.createdAt} < date_trunc('day', NOW() AT TIME ZONE ${tz} - INTERVAL '6 days') AT TIME ZONE ${tz}`
       );
     } else if (filters.period === '30days') {
       conditions.push(
         sql`${schema.orders.createdAt} >= date_trunc('day', NOW() AT TIME ZONE ${tz} - INTERVAL '29 days') AT TIME ZONE ${tz}`
       );
-    } else {
+    } else if (filters.period === '30days_prev') {
+      conditions.push(
+        sql`${schema.orders.createdAt} >= date_trunc('day', NOW() AT TIME ZONE ${tz} - INTERVAL '59 days') AT TIME ZONE ${tz}`
+      );
+      conditions.push(
+        sql`${schema.orders.createdAt} < date_trunc('day', NOW() AT TIME ZONE ${tz} - INTERVAL '29 days') AT TIME ZONE ${tz}`
+      );
+    } else if (filters.from || filters.to) {
       if (filters.from) conditions.push(gte(schema.orders.createdAt, new Date(filters.from)));
       if (filters.to) conditions.push(lte(schema.orders.createdAt, new Date(filters.to)));
+    } else {
+      conditions.push(
+        sql`${schema.orders.createdAt} >= date_trunc('day', NOW() AT TIME ZONE ${tz}) AT TIME ZONE ${tz}`
+      );
+      conditions.push(
+        sql`${schema.orders.createdAt} < date_trunc('day', NOW() AT TIME ZONE ${tz} + INTERVAL '1 day') AT TIME ZONE ${tz}`
+      );
     }
 
     const [orderStats] = await tx
